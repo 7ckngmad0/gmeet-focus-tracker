@@ -1,0 +1,1 @@
+console.log("[GMeet Focus Tracker] background service worker started");

@@ -1,0 +1,1 @@
+console.log("[GMeet Focus Tracker] content script loaded on", location.href);
