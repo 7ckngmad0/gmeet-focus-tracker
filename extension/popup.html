@@ -1,7 +1,26 @@
 <!DOCTYPE html>
 <html>
-  <body style="width:220px;font-family:sans-serif">
-    <h3>GMeet Focus Tracker</h3>
-    <p>Setup works!</p>
+  <head>
+    <style>
+      body { width: 260px; font-family: sans-serif; padding: 8px; }
+      input, button { width: 100%; margin-top: 8px; padding: 6px; box-sizing: border-box; }
+      small { color: #555; }
+    </style>
+  </head>
+  <body>
+    <h3>Meet Focus Tracker</h3>
+    <small>
+      During a Google Meet class, this extension records when you switch tabs or
+      windows and when you are idle. It does not record video, audio,
+      screenshots, or what is on your other tabs.
+    </small>
+    <input id="name" placeholder="Full name" />
+    <label>
+      <input type="checkbox" id="consent" style="width:auto" />
+      I agree to be tracked during class
+    </label>
+    <button id="save">Save</button>
+    <p id="status"></p>
+    <script src="popup.js"></script>
   </body>
 </html>
