@@ -11,7 +11,8 @@ async function saveEvent(evt) {
       student: student.name,
       email: student.email,
       uid: student.uid,
-      timestamp: evt.time
+      timestamp: evt.time,
+      formattedTime: new Date(evt.time).toLocaleString()
     });
     console.log("[Meet Focus Tracker]", student.email, evt.type, new Date(evt.time).toLocaleTimeString());
     
@@ -28,5 +29,12 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 chrome.idle.setDetectionInterval(15);
 chrome.idle.onStateChanged.addListener((state) => {
-  saveEvent({ type: state.toUpperCase(), time: Date.now() });
+  if (state === "idle" || state === "locked") {
+    saveEvent({ type: "IDLE", time: Date.now() });
+  } else if (state === "active") {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const isMeet = tabs.length > 0 && tabs[0].url && tabs[0].url.includes("meet.google.com");
+      saveEvent({ type: isMeet ? "RETURNED" : "AWAY", time: Date.now() });
+    });
+  }
 });
