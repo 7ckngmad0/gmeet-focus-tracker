@@ -9,9 +9,11 @@ async function saveEvent(evt) {
     await addDoc(collection(db, "focus_events"), {
       ...evt,
       student: student.name,
+      email: student.email,
+      uid: student.uid,
       timestamp: evt.time
     });
-    console.log("[Meet Focus Tracker]", student.name, evt.type, new Date(evt.time).toLocaleTimeString());
+    console.log("[Meet Focus Tracker]", student.email, evt.type, new Date(evt.time).toLocaleTimeString());
     
     // Also save current mode for the popup UI
     await chrome.storage.local.set({ currentMode: evt.type });
