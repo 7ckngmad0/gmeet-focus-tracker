@@ -1,36 +1,74 @@
-const nameInput = document.getElementById("name");
+import { auth } from "./firebase";
+import { signInWithCredential, GoogleAuthProvider } from "firebase/auth";
+
 const consentBox = document.getElementById("consent");
 const status = document.getElementById("status");
-
+const authBtn = document.getElementById("auth-btn");
 const modeDisplay = document.getElementById("currentMode");
+const userInfo = document.getElementById("user-info");
+const userEmail = document.getElementById("user-email");
 
-chrome.storage.local.get(["student", "currentMode"], ({ student, currentMode }) => {
-  if (student) {
-    nameInput.value = student.name;
+function updateTheme(mode) {
+  if (!mode) return;
+  document.body.className = ''; // reset
+  
+  const m = mode.toUpperCase();
+  modeDisplay.textContent = m;
+  
+  if (m === 'JOINED') document.body.classList.add('mode-joined');
+  else if (m === 'RETURNED') document.body.classList.add('mode-returned');
+  else if (m === 'AWAY') document.body.classList.add('mode-away');
+  else if (m === 'IDLE') document.body.classList.add('mode-idle');
+}
+
+function updateUI(student) {
+  if (student && student.email) {
+    userInfo.style.display = "block";
+    userEmail.textContent = student.email;
     consentBox.checked = student.consent;
+    
+    // Change button to just "Save Settings" since they are already signed in
+    authBtn.innerHTML = "Save Settings";
     status.textContent = student.consent ? "Tracking is ON in Meet." : "Tracking is OFF.";
   }
-  if (currentMode) {
-    modeDisplay.textContent = currentMode;
-  }
+}
+
+// Load initial state
+chrome.storage.local.get(["student", "currentMode"], ({ student, currentMode }) => {
+  updateUI(student);
+  updateTheme(currentMode);
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.currentMode) {
-    modeDisplay.textContent = changes.currentMode.newValue;
+    updateTheme(changes.currentMode.newValue);
   }
 });
 
-document.getElementById("save").addEventListener("click", async () => {
-  const name = nameInput.value.trim();
-  if (!name) {
-    status.textContent = "Please enter your name.";
-    return;
+authBtn.addEventListener("click", async () => {
+  try {
+    const { token } = await chrome.identity.getAuthToken({ interactive: true });
+    
+    const credential = GoogleAuthProvider.credential(null, token);
+    const userCredential = await signInWithCredential(auth, credential);
+    const user = userCredential.user;
+
+    const student = { 
+      uid: user.uid, 
+      email: user.email, 
+      name: user.displayName,
+      consent: consentBox.checked 
+    };
+    
+    await chrome.storage.local.set({ student });
+    updateUI(student);
+    
+    status.textContent = consentBox.checked
+      ? "Saved. Tracking is ON in Meet."
+      : "Saved. Tracking is OFF.";
+
+  } catch (error) {
+    console.error("Auth Error:", error);
+    status.textContent = "Authentication failed. Try again.";
   }
-  await chrome.storage.local.set({
-    student: { name, consent: consentBox.checked }
-  });
-  status.textContent = consentBox.checked
-    ? "Saved. Tracking is ON in Meet."
-    : "Saved. Tracking is OFF.";
 });
