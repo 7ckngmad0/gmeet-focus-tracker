@@ -2,11 +2,22 @@ const nameInput = document.getElementById("name");
 const consentBox = document.getElementById("consent");
 const status = document.getElementById("status");
 
-chrome.storage.local.get("student", ({ student }) => {
+const modeDisplay = document.getElementById("currentMode");
+
+chrome.storage.local.get(["student", "currentMode"], ({ student, currentMode }) => {
   if (student) {
     nameInput.value = student.name;
     consentBox.checked = student.consent;
     status.textContent = student.consent ? "Tracking is ON in Meet." : "Tracking is OFF.";
+  }
+  if (currentMode) {
+    modeDisplay.textContent = currentMode;
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.currentMode) {
+    modeDisplay.textContent = changes.currentMode.newValue;
   }
 });
 
