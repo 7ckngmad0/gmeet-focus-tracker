@@ -143,3 +143,4 @@ vite.config.ts.timestamp-*
 .vite/
 extension/config.js
 src/firebase.js
+extension_key.pem
