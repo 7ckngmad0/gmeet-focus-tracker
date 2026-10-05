@@ -60,10 +60,19 @@ async function saveEvent(evt) {
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
-  saveEvent(msg);
+  (async () => {
+    if (msg.meetingCode) {
+      await chrome.storage.local.set({
+        activeMeeting: msg.type === "LEFT" ? null : msg.meetingCode
+      });
+    }
+    await saveEvent(msg);
+  })();
 });
 
 chrome.idle.setDetectionInterval(15);
-chrome.idle.onStateChanged.addListener((state) => {
-  saveEvent({ type: state.toUpperCase(), time: Date.now() });
+chrome.idle.onStateChanged.addListener(async (state) => {
+  const { activeMeeting } = await chrome.storage.local.get("activeMeeting");
+  if (!activeMeeting) return;
+  saveEvent({ type: state.toUpperCase(), time: Date.now(), meetingCode: activeMeeting });
 });
