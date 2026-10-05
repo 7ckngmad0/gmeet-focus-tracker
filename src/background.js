@@ -53,7 +53,6 @@ async function saveEvent(evt) {
     });
     console.log("[Meet Focus Tracker]", student.email, evt.type, new Date(evt.time).toLocaleTimeString());
 
-    // Also save current mode for the popup UI
     await chrome.storage.local.set({ currentMode: evt.type });
   } catch (e) {
     console.error("Error adding document: ", e);

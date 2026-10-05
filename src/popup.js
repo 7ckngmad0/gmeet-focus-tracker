@@ -29,18 +29,15 @@ function updateUI(student) {
     userEmail.textContent = student.email;
     consentBox.checked = student.consent;
 
-    // Change button to just "Save Settings" since they are already signed in
     authBtn.innerHTML = "Save Settings";
     status.textContent = student.consent ? "Tracking is ON in Meet." : "Tracking is OFF.";
   }
 }
 
-// Track live Firebase auth state so we know whether a real sign-in is needed
 onAuthStateChanged(auth, (user) => {
   currentUser = user;
 });
 
-// Load initial state
 chrome.storage.local.get(["student", "currentMode"], ({ student, currentMode }) => {
   updateUI(student);
   updateTheme(currentMode);
@@ -54,7 +51,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 authBtn.addEventListener("click", async () => {
   try {
-    // Already signed in: this click is just "Save Settings" — don't re-run OAuth.
     if (currentUser) {
       const student = {
         uid: currentUser.uid,
@@ -72,7 +68,6 @@ authBtn.addEventListener("click", async () => {
       return;
     }
 
-    // Not signed in yet: run the real OAuth + Firebase sign-in flow.
     const { token } = await chrome.identity.getAuthToken({ interactive: true });
 
     const credential = GoogleAuthProvider.credential(null, token);
