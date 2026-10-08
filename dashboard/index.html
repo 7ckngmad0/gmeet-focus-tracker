@@ -20,7 +20,6 @@
       <span class="brand-text">PUP <span class="accent-i">i</span><span class="accent-seen">SEEN</span><span class="accent-ta">TA</span></span>
     </div>
     <nav class="nav-links">
-      <a href="#" class="nav-item" id="nav-history">HISTORY</a>
       <a href="#" class="nav-item" id="nav-signin">SIGN IN</a>
     </nav>
   </header>
@@ -29,13 +28,11 @@
 
     <!-- ===== 2. Title & Subtitle ===== -->
     <section class="session-meta">
-      <h1 class="course-title" id="course-title">INTE 301: SYSTEMS INTEGRATION AND APPLICATION</h1>
+      <h1 class="course-title" id="course-title">LIVE FOCUS DASHBOARD</h1>
       <p class="course-sub">
-        <span id="class-section">BSIT 3-5</span>
+        <span>Meet: <a class="code-link" id="meet-code" target="_blank" rel="noopener">All meetings today</a></span>
         <span class="divider">|</span>
-        <span>Time: <span id="class-time">9:00 AM - 11:30 AM</span></span>
-        <span class="divider">|</span>
-        <span>Meet: <span class="code-link" id="meet-code">imi-ssy-ouo</span></span>
+        <span>Date: <span id="session-date"></span></span>
       </p>
     </section>
 
@@ -81,7 +78,7 @@
       <!-- Legend + Table -->
       <div class="panel-content-grid">
 
-        <!-- Left: Legend + Show Switchers -->
+        <!-- Left: Legend -->
         <aside class="sidebar-legend">
           <div class="legend-card">
             <h4 class="legend-heading">LEGEND:</h4>
@@ -104,10 +101,6 @@
               </li>
             </ul>
           </div>
-
-          <button class="btn-show-switchers" id="btn-show-switchers" type="button">
-            SHOW SWITCHERS
-          </button>
         </aside>
 
         <!-- Right: Student Table -->
@@ -131,6 +124,6 @@
 
   </div>
 
-  <script type="module" src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

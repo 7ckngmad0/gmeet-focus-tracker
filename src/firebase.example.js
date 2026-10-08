@@ -1,7 +1,9 @@
+// Copy this file to src/firebase.js and fill in the values. src/firebase.js is gitignored.
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth } from "firebase/auth/web-extension";
 
+// Firebase console → Project settings → General → Your apps → Web app → SDK setup and configuration
 const firebaseConfig = {
   apiKey: "your-api-key-here",
   authDomain: "your-project-id.firebaseapp.com",
@@ -10,6 +12,11 @@ const firebaseConfig = {
   messagingSenderId: "your-messaging-sender-id",
   appId: "your-app-id"
 };
+
+// Only needed for Brave, Edge and other non-Chrome browsers. Leave "" to use Chrome sign-in only.
+// Google Cloud console → APIs & Services → Credentials → a "Web application" OAuth client ID
+// whose authorized redirect URI is https://<extension-id>.chromiumapp.org/
+export const GOOGLE_WEB_CLIENT_ID = "";
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);

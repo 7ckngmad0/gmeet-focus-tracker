@@ -6,7 +6,8 @@ module.exports = {
   entry: {
     background: './src/background.js',
     content: './src/content.js',
-    popup: './src/popup.js'
+    popup: './src/popup.js',
+    'dashboard/app': './dashboard/app.js'
   },
   output: {
     filename: '[name].js',
@@ -18,7 +19,10 @@ module.exports = {
       patterns: [
         { from: 'src/manifest.json', to: 'manifest.json' },
         { from: 'src/popup.html', to: 'popup.html' },
-        { from: 'src/popup.css', to: 'popup.css' }
+        { from: 'src/popup.css', to: 'popup.css' },
+        { from: 'dashboard/index.html', to: 'dashboard/index.html' },
+        { from: 'dashboard/style.css', to: 'dashboard/style.css' },
+        { from: 'dashboard/assets', to: 'dashboard/assets' }
       ],
     }),
   ],
