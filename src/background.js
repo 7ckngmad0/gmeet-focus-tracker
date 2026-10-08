@@ -1,4 +1,4 @@
-import { collection, addDoc } from "firebase/firestore";
+import { collection, addDoc, Timestamp } from "firebase/firestore";
 import { signInWithCredential, GoogleAuthProvider } from "firebase/auth";
 import { auth, db } from "./firebase";
 
@@ -49,7 +49,7 @@ async function saveEvent(evt) {
       student: student.name,
       email: student.email,
       uid: user.uid,
-      timestamp: evt.time
+      timestamp: Timestamp.fromMillis(evt.time)
     });
     console.log("[Meet Focus Tracker]", student.email, evt.type, new Date(evt.time).toLocaleTimeString());
 
