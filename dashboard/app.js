@@ -1,35 +1,21 @@
-// ===== Firebase setup (same project as the extension) =====
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getFirestore, collection, query, where, orderBy, onSnapshot
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyAL9NhthsEicdZogXISL1SyEezKKaOWKaM",
-  authDomain: "gmeet-focus-tracker.firebaseapp.com",
-  projectId: "gmeet-focus-tracker",
-  storageBucket: "gmeet-focus-tracker.firebasestorage.app",
-  messagingSenderId: "596698279952",
-  appId: "1:596698279952:web:7ffe0c5dd7031419f1da95"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
+// ===== Firebase setup (bundled with the extension, shares its sign-in) =====
+import { collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth/web-extension";
+import { auth, db } from "../src/firebase";
+import { signInWithGoogle } from "../src/auth";
+import { isProfessorEmail, MEET_CODE_RE } from "../src/config";
 
 // The extension writes to "events" (see background.js)
 const EVENTS_COLLECTION = "events";
 
-// Optional: only show one class session. Idle events only carry a meetingCode
-// after the background.js patch, so leave this null until you've applied it.
-const FILTER_MEET_CODE = null; // e.g. "imi-ssy-ouo"
+// The popup opens this page as dashboard/index.html?room=abc-defg-hij.
+// Without a valid room, every meeting from today is shown.
+const params = new URLSearchParams(window.location.search);
+const roomParam = (params.get("room") || params.get("meetingCode") || "").trim().toLowerCase();
+const ROOM = MEET_CODE_RE.test(roomParam) ? roomParam : null;
 
 let rawEvents = [];
 let studentData = [];
-let showOnlySwitchers = false;
 let unsubscribe = null;
 
 function escapeHtml(str) {
@@ -70,7 +56,7 @@ function buildStudentRows(events) {
         case "JOINED":   inMeet = true; away = false; idle = false; everJoined = true; break;
         case "RETURNED": inMeet = true; away = false; everJoined = true; break;
         case "AWAY":     inMeet = true; away = true; switches += 1; everJoined = true; break;
-        case "LEFT":     inMeet = false; away = false; break;
+        case "LEFT":     inMeet = false; away = false; idle = false; break;
         case "IDLE":
         case "LOCKED":   idle = true; break;
         case "ACTIVE":   idle = false; break;
@@ -114,10 +100,7 @@ function humanizeEventType(type) {
 }
 
 function refresh() {
-  const events = FILTER_MEET_CODE
-    ? rawEvents.filter(e => e.meetingCode === FILTER_MEET_CODE)
-    : rawEvents;
-  studentData = buildStudentRows(events);
+  studentData = buildStudentRows(rawEvents);
   renderTable();
   updateStats();
 }
@@ -127,15 +110,22 @@ function startListening() {
   stopListening();
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
+  const since = startOfToday.getTime();
 
-  const q = query(
-    collection(db, EVENTS_COLLECTION),
-    where("time", ">=", startOfToday.getTime()),
-    orderBy("time", "asc")
-  );
+  // A room filter uses a single-field query so no composite index is needed;
+  // today's events are then picked out on the client.
+  const q = ROOM
+    ? query(collection(db, EVENTS_COLLECTION), where("meetingCode", "==", ROOM))
+    : query(
+        collection(db, EVENTS_COLLECTION),
+        where("time", ">=", since),
+        orderBy("time", "asc")
+      );
 
   unsubscribe = onSnapshot(q, snapshot => {
-    rawEvents = snapshot.docs.map(d => d.data());
+    rawEvents = snapshot.docs
+      .map(d => d.data())
+      .filter(e => typeof e.time === "number" && e.time >= since);
     refresh();
   }, err => {
     console.error("Failed to load events:", err);
@@ -173,16 +163,12 @@ function renderTable() {
   const tbody = document.getElementById("student-tbody");
   if (!tbody) return;
 
-  const displayList = showOnlySwitchers
-    ? studentData.filter(s => s.switches >= 3)
-    : studentData;
-
-  if (displayList.length === 0) {
-    showTableMessage("No student activity yet.");
+  if (studentData.length === 0) {
+    showTableMessage(ROOM ? `No student activity in ${ROOM} today.` : "No student activity yet.");
     return;
   }
 
-  tbody.innerHTML = displayList.map(s => {
+  tbody.innerHTML = studentData.map(s => {
     const isLeft = s.status.toLowerCase() === 'left';
     return `
       <tr class="${isLeft ? 'row-left' : ''}">
@@ -225,38 +211,63 @@ function updateStats() {
   if (awayEl) awayEl.textContent = awayCount;
 }
 
-// ===== Show Switchers toggle =====
-function initShowSwitchersButton() {
-  const btn = document.getElementById('btn-show-switchers');
-  if (!btn) return;
+// ===== Session header (room + date) =====
+function renderSessionMeta() {
+  const codeEl = document.getElementById('meet-code');
+  if (codeEl) {
+    if (ROOM) {
+      codeEl.textContent = ROOM;
+      codeEl.href = `https://meet.google.com/${ROOM}`;
+    } else {
+      codeEl.textContent = 'All meetings today';
+      codeEl.removeAttribute('href');
+    }
+  }
 
-  btn.addEventListener('click', () => {
-    showOnlySwitchers = !showOnlySwitchers;
-    btn.textContent = showOnlySwitchers ? 'SHOW ALL' : 'SHOW SWITCHERS';
-    renderTable();
-  });
+  const dateEl = document.getElementById('session-date');
+  if (dateEl) {
+    dateEl.textContent = new Date().toLocaleDateString([], {
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+    });
+  }
+
+  document.title = ROOM ? `${ROOM} | PUP iSEENTA` : 'PUP iSEENTA | Focus Dashboard';
 }
 
-// ===== Teacher sign-in =====
+// ===== Professor sign-in =====
 function initAuth() {
   const link = document.getElementById('nav-signin');
 
-  link?.addEventListener('click', e => {
+  link?.addEventListener('click', async e => {
     e.preventDefault();
-    if (auth.currentUser) signOut(auth);
-    else signInWithPopup(auth, new GoogleAuthProvider()).catch(console.error);
+    try {
+      if (auth.currentUser) {
+        await chrome.runtime.sendMessage({ cmd: 'signOut' });
+      } else {
+        await signInWithGoogle({ interactive: true });
+      }
+    } catch (err) {
+      console.error(err);
+      showTableMessage(err.message || 'Sign-in failed. Try again.');
+    }
   });
 
   onAuthStateChanged(auth, user => {
-    if (user) {
-      if (link) link.textContent = 'SIGN OUT';
+    if (link) link.textContent = user ? 'SIGN OUT' : 'SIGN IN';
+
+    if (user && isProfessorEmail(user.email)) {
+      chrome.storage.local.set({
+        profile: { role: 'professor', uid: user.uid, email: user.email, name: user.displayName }
+      });
       startListening();
-    } else {
-      if (link) link.textContent = 'SIGN IN';
-      stopListening();
-      showTableMessage('Sign in with your teacher account to view activity.');
-      updateStats();
+      return;
     }
+
+    stopListening();
+    updateStats();
+    showTableMessage(user
+      ? `${user.email} isn't recognized as a professor. Sign out and use a professor account.`
+      : 'Sign in with your professor account to view activity.');
   });
 
   setInterval(() => { if (rawEvents.length) refresh(); }, 30000);
@@ -304,8 +315,8 @@ function initControlButtons() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  renderSessionMeta();
   updateTimerDisplay();
-  initShowSwitchersButton();
   initControlButtons();
   initAuth();
 });
