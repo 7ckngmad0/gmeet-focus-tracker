@@ -33,7 +33,7 @@ async function ensureAuth() {
   return authInFlight;
 }
 
-async function saveEvent(evt) {
+async function saveEvent(evt, uiMode = evt.type) {
   const { student } = await chrome.storage.local.get(["student"]);
   if (!student || !student.consent) return;
 
@@ -54,7 +54,7 @@ async function saveEvent(evt) {
     });
     console.log("[Meet Focus Tracker]", student.email, evt.type, new Date(evt.time).toLocaleTimeString());
 
-    await chrome.storage.local.set({ currentMode: evt.type });
+    await chrome.storage.local.set({ currentMode: uiMode });
   } catch (e) {
     console.error("Error adding document: ", e);
   }
@@ -76,11 +76,12 @@ chrome.idle.onStateChanged.addListener(async (state) => {
   const { activeMeeting } = await chrome.storage.local.get("activeMeeting");
   if (!activeMeeting) return;
 
+  // Firestore keeps the raw state (dashboard needs ACTIVE to clear idle); the popup gets a UI mode
   if (state === "idle" || state === "locked") {
-    saveEvent({ type: "IDLE", time: Date.now(), meetingCode: activeMeeting });
+    saveEvent({ type: state.toUpperCase(), time: Date.now(), meetingCode: activeMeeting }, "IDLE");
   } else if (state === "active") {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const isMeet = tabs.length > 0 && tabs[0].url && tabs[0].url.includes("meet.google.com");
-    saveEvent({ type: isMeet ? "RETURNED" : "AWAY", time: Date.now(), meetingCode: activeMeeting });
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const isMeet = !!tab?.url?.includes("meet.google.com");
+    saveEvent({ type: "ACTIVE", time: Date.now(), meetingCode: activeMeeting }, isMeet ? "RETURNED" : "AWAY");
   }
 });
