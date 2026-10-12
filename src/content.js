@@ -17,9 +17,15 @@ function roomFromLocation() {
   return MEET_CODE_RE.test(code) ? code : null;
 }
 
-// The "Leave call" button only exists once the student is in the call (not the lobby or post-call screen)
+// The "Leave call" button only exists once the student is in the call (not the lobby or
+// post-call screen). Its aria-label is localized, so fall back to the hang-up button's
+// material icon, which reads "call_end" in every locale.
 function inCall() {
-  return !!document.querySelector('[aria-label*="leave call" i]');
+  if (document.querySelector('[aria-label*="leave call" i]')) return true;
+  for (const el of document.querySelectorAll(".google-material-icons, .material-icons, .material-symbols-outlined")) {
+    if (el.textContent.trim() === "call_end") return true;
+  }
+  return false;
 }
 
 function sendEvent(type, meetingCode, extra = {}) {

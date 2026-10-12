@@ -15,7 +15,9 @@ const t = (label, events, exp) => {
 };
 t('left stops focus', [['JOINED', 0], ['LEFT', 3]], { status: 'Left', focus: '3 m focus', switches: 0 });
 t('away counted, focus paused', [['JOINED', 0], ['AWAY', 2], ['RETURNED', 4]], { status: 'Active', focus: '8 m focus', switches: 1 });
-t('idle then left then rejoin clears idle', [['JOINED', 0], ['IDLE', 1], ['LEFT', 2], ['JOINED', 5]], { status: 'Active', focus: '6 m focus', switches: 0 });
+// RETURNED doesn't clear idle on its own — only LEFT does — so this sequence isolates
+// the LEFT-clears-idle change (a JOINED rejoin would clear idle either way)
+t('idle then left then rejoin clears idle', [['JOINED', 0], ['IDLE', 1], ['LEFT', 2], ['RETURNED', 5]], { status: 'Active', focus: '6 m focus', switches: 0 });
 t('locked then active', [['JOINED', 0], ['LOCKED', 2], ['ACTIVE', 6]], { status: 'Active', focus: '6 m focus', switches: 0 });
 t('idle-only hidden', [['IDLE', 0]], null);
 process.exitCode = fail;

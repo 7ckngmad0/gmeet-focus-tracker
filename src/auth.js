@@ -1,8 +1,11 @@
 import { GoogleAuthProvider, signInWithCredential, signOut } from "firebase/auth/web-extension";
 import { auth, GOOGLE_WEB_CLIENT_ID } from "./firebase";
 
-// Brave exposes navigator.brave; its chrome.identity.getAuthToken fails or never resolves
-const isBrave = typeof navigator !== "undefined" && !!navigator.brave;
+// chrome.identity.getAuthToken only works in real Chrome. navigator.brave isn't exposed
+// to service workers, so prefer UA brands: Chrome always lists a "Google Chrome" brand
+// while Edge, Brave and other Chromium browsers don't.
+const brands = navigator.userAgentData?.brands?.map(b => b.brand) ?? null;
+const isRealChrome = brands ? brands.includes("Google Chrome") : !(typeof navigator !== "undefined" && navigator.brave);
 
 function withTimeout(promise, ms) {
   return Promise.race([
@@ -14,11 +17,11 @@ function withTimeout(promise, ms) {
 // chrome.identity.getAuthToken uses the Google account signed into Chrome.
 // Only Google Chrome supports it; Brave, Edge and other Chromium browsers don't.
 async function tokenFromChromeIdentity(interactive) {
-  if (isBrave || !chrome.identity?.getAuthToken) return null;
+  if (!isRealChrome || !chrome.identity?.getAuthToken) return null;
   try {
     const result = await withTimeout(
       chrome.identity.getAuthToken({ interactive }),
-      interactive ? 120000 : 5000
+      interactive ? 20000 : 5000
     );
     return result?.token || null;
   } catch (e) {
@@ -35,11 +38,13 @@ async function tokenFromWebAuthFlow(interactive) {
     throw new Error("Google sign-in isn't set up for this browser. Add GOOGLE_WEB_CLIENT_ID to src/firebase.js (see SETUP-GUIDE.md).");
   }
 
+  const state = crypto.randomUUID();
   const params = new URLSearchParams({
     client_id: GOOGLE_WEB_CLIENT_ID,
     response_type: "token",
     redirect_uri: chrome.identity.getRedirectURL(),
-    scope: "openid email profile"
+    scope: "openid email profile",
+    state
   });
   if (interactive) params.set("prompt", "select_account");
 
@@ -50,6 +55,7 @@ async function tokenFromWebAuthFlow(interactive) {
     });
     const result = new URLSearchParams(new URL(responseUrl).hash.slice(1));
     if (result.get("error")) throw new Error(`Google sign-in failed: ${result.get("error")}`);
+    if (result.get("state") !== state) throw new Error("Google sign-in failed: state mismatch.");
     return result.get("access_token");
   } catch (e) {
     if (!interactive) return null;
