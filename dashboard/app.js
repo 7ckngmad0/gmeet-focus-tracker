@@ -261,7 +261,7 @@ function initAuth() {
       chrome.storage.local.get("profile").then(({ profile }) => {
         if (profile?.role === "student") return;
         chrome.storage.local.set({
-          profile: { role: 'professor', uid: user.uid, email: user.email, name: user.displayName }
+          profile: { role: 'professor', uid: user.uid, email: user.email, name: user.displayName || user.email }
         });
       });
       startListening();
