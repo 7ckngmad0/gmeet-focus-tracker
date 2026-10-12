@@ -66,13 +66,24 @@ async function tokenFromWebAuthFlow(interactive) {
 // Signs into Firebase with a Google access token. Throws if interactive sign-in fails;
 // returns null if a silent (non-interactive) sign-in isn't possible.
 export async function signInWithGoogle({ interactive }) {
-  const token = (await tokenFromChromeIdentity(interactive)) || (await tokenFromWebAuthFlow(interactive));
-  if (!token) {
-    if (interactive) throw new Error("Google sign-in was cancelled.");
-    return null;
+  // An interactive sign-in can take longer than the service worker's ~30 s idle
+  // lifetime; if it dies mid-flow the popup's sendMessage just fails. Periodic API
+  // calls keep the worker alive until the flow resolves.
+  let keepAlive = null;
+  if (interactive) {
+    keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 15000);
   }
-  const { user } = await signInWithCredential(auth, GoogleAuthProvider.credential(null, token));
-  return user;
+  try {
+    const token = (await tokenFromChromeIdentity(interactive)) || (await tokenFromWebAuthFlow(interactive));
+    if (!token) {
+      if (interactive) throw new Error("Google sign-in was cancelled.");
+      return null;
+    }
+    const { user } = await signInWithCredential(auth, GoogleAuthProvider.credential(null, token));
+    return user;
+  } finally {
+    if (keepAlive) clearInterval(keepAlive);
+  }
 }
 
 export async function signOutGoogle() {
