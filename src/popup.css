@@ -28,7 +28,12 @@ body {
 	letter-spacing: -0.5px;
 }
 
-.brand-text .accent {
+.brand-text .accent-i,
+.brand-text .accent-ta {
+	color: #ffffff;
+}
+
+.brand-text .accent-seen {
 	color: #e5b23d;
 }
 
