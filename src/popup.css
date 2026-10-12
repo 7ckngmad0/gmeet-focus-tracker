@@ -20,6 +20,18 @@ body {
 	padding: 0 16px;
 }
 
+.brand {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.brand-logo {
+	height: 30px;
+	width: auto;
+	object-fit: contain;
+}
+
 .brand-text {
 	font-family: 'Poppins', sans-serif;
 	color: #ffffff;

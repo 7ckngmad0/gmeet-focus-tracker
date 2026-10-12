@@ -22,7 +22,8 @@ module.exports = {
         { from: 'src/popup.css', to: 'popup.css' },
         { from: 'dashboard/index.html', to: 'dashboard/index.html' },
         { from: 'dashboard/style.css', to: 'dashboard/style.css' },
-        { from: 'dashboard/assets', to: 'dashboard/assets' }
+        { from: 'dashboard/assets', to: 'dashboard/assets' },
+        { from: 'src/assets/icon.png', to: 'icon.png' }
       ],
     }),
   ],
