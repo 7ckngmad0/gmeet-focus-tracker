@@ -14,20 +14,17 @@ service cloud.firestore {
     }
 
     match /events/{eventId} {
-      // Students can only add events under their own identity: uid and email must match
-      // the caller's token (compared case-insensitively), the room must be a real Meet
-      // code, time can't be far in the future (a day of clock-skew allowance — student
-      // laptops drift), and no extra fields are allowed.
+      // Students add events under their own uid. Field shape is enforced, but the
+      // email-token binding and future-time bound were dropped: token email claims
+      // and skewed student clocks wrongly rejected legitimate writes.
       allow create: if request.auth != null
         && request.resource.data.keys().hasOnly(
             ['type', 'time', 'timestamp', 'meetingCode', 'student', 'email', 'uid'])
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.email.lower() == request.auth.token.email.lower()
         && request.resource.data.student is string
         && request.resource.data.student.size() <= 200
         && request.resource.data.type in ['JOINED', 'AWAY', 'RETURNED', 'LEFT', 'IDLE', 'LOCKED', 'ACTIVE']
         && request.resource.data.time is int
-        && request.resource.data.time <= request.time.toMillis() + 86400000
         && request.resource.data.meetingCode.matches('^[a-z]{3}-[a-z]{4}-[a-z]{3}$')
         && request.resource.data.timestamp is timestamp;
 
