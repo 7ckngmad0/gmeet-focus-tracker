@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Keep this list in sync with PROFESSOR_EMAILS in src/config.js
+    function isProfessor() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in [
+          'draconic788@gmail.com',
+          'renzkerbysajuelaofficial@gmail.com',
+          'ajosejustingabriel@gmail.com'
+        ];
+    }
+
+    match /events/{eventId} {
+      // Students add events under their own uid. Field shape is enforced, but the
+      // email-token binding and future-time bound were dropped: token email claims
+      // and skewed student clocks wrongly rejected legitimate writes.
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(
+            ['type', 'time', 'timestamp', 'meetingCode', 'student', 'email', 'uid'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.student is string
+        && request.resource.data.student.size() <= 200
+        && request.resource.data.type in ['JOINED', 'AWAY', 'RETURNED', 'LEFT', 'IDLE', 'LOCKED', 'ACTIVE']
+        && request.resource.data.time is int
+        && request.resource.data.meetingCode.matches('^[a-z]{3}-[a-z]{4}-[a-z]{3}$')
+        && request.resource.data.timestamp is timestamp;
+
+      // Only professors can read; nobody can edit or delete events
+      allow read: if isProfessor();
+      allow update, delete: if false;
+    }
+  }
+}

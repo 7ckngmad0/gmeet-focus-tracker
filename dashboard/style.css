@@ -97,6 +97,11 @@ body {
   color: #6b7280;
 }
 
+a.code-link:not([href]) {
+  text-decoration: none;
+  cursor: default;
+}
+
 .code-link {
   font-weight: 600;
 }
@@ -280,26 +285,6 @@ body {
 .dot-idle   { background-color: #eab308; }
 .dot-left   { background-color: #701a35; }
 
-/* Show Switchers Button */
-.btn-show-switchers {
-  background-color: #aa1111;
-  color: #ffffff;
-  font-family: 'Public Sans', sans-serif;
-  font-size: 13px;
-  font-weight: 800;
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: none;
-  cursor: pointer;
-  text-align: center;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
-  transition: opacity 0.15s ease;
-}
-
-.btn-show-switchers:hover {
-  opacity: 0.9;
-}
-
 /* Right Table */
 .table-container {
   background-color: #ffffff;
@@ -431,10 +416,6 @@ body {
 
   .legend-card {
     flex: 1 1 220px;
-  }
-
-  .btn-show-switchers {
-    flex: 1 1 160px;
   }
 
   /* Table can be strolled instead of squeezing columns */

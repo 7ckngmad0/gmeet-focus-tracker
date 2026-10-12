@@ -1,72 +1,86 @@
-:root {
-	--bg-main: #0f172a;
-	--glass-bg: rgba(30, 41, 59, 0.7);
-	--glass-border: rgba(255, 255, 255, 0.1);
-
-	--color-joined: #3b82f6;
-	--color-returned: #10b981;
-	--color-away: #f59e0b;
-	--color-idle: #ef4444;
-	--color-unknown: #64748b;
-
-	--active-color: var(--color-unknown);
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
 }
 
 body {
 	width: 320px;
-	font-family: 'Inter', sans-serif;
-	margin: 0;
-	padding: 16px;
-	background: var(--bg-main);
-	color: #f8fafc;
-	display: flex;
-	flex-direction: column;
-	gap: 16px;
+	font-family: 'Public Sans', sans-serif;
+	background: #ffffff;
+	color: #111827;
 }
 
-h3 {
-	margin: 0;
-	font-weight: 600;
-	font-size: 18px;
+/* ===== Maroon navbar (matches dashboard) ===== */
+.top-navbar {
+	background-color: #3b0000;
+	height: 46px;
+	display: flex;
+	align-items: center;
+	padding: 0 16px;
+}
+
+.brand {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.brand-logo {
+	height: 30px;
+	width: auto;
+	object-fit: contain;
+}
+
+.brand-text {
+	font-family: 'Poppins', sans-serif;
+	color: #ffffff;
+	font-size: 17px;
+	font-weight: 800;
 	letter-spacing: -0.5px;
 }
 
-.glass-card {
-	background: var(--glass-bg);
-	backdrop-filter: blur(10px);
-	-webkit-backdrop-filter: blur(10px);
-	border: 1px solid var(--glass-border);
-	border-radius: 12px;
+.brand-text .accent-i,
+.brand-text .accent-ta {
+	color: #ffffff;
+}
+
+.brand-text .accent-seen {
+	color: #e5b23d;
+}
+
+.page-body {
 	padding: 16px;
-	box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-}
-
-.description {
-	font-size: 12px;
-	color: #94a3b8;
-	line-height: 1.5;
-	margin-top: 4px;
-	margin-bottom: 0;
-}
-
-.auth-section {
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
+	gap: 14px;
 }
 
-#user-info {
-	display: none;
-	font-size: 13px;
-	background: rgba(255, 255, 255, 0.05);
-	padding: 8px 12px;
-	border-radius: 8px;
-	border: 1px solid rgba(255, 255, 255, 0.05);
+/* ===== Title & subtitle ===== */
+.course-title {
+	font-family: 'Poppins', sans-serif;
+	font-size: 20px;
+	font-weight: 800;
+	letter-spacing: -0.5px;
+	color: #000000;
+	margin-bottom: 3px;
 }
 
-#user-email {
-	color: #38bdf8;
+.course-sub {
+	font-family: 'Public Sans', sans-serif;
+	font-size: 12px;
+	color: #4b5563;
 	font-weight: 500;
+	line-height: 1.5;
+}
+
+/* ===== White cards ===== */
+.glass-card {
+	background: #ffffff;
+	border: 1px solid #e5e7eb;
+	border-radius: 12px;
+	padding: 16px;
+	box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08);
 }
 
 label {
@@ -74,23 +88,26 @@ label {
 	align-items: center;
 	gap: 8px;
 	font-size: 13px;
+	font-weight: 500;
 	cursor: pointer;
-	color: #e2e8f0;
+	color: #111827;
 }
 
 input[type="checkbox"] {
-	accent-color: var(--color-joined);
+	accent-color: #2b52ba;
 	width: 16px;
 	height: 16px;
 	cursor: pointer;
 }
 
+/* ===== Buttons: blue primary like the dashboard ===== */
 button {
-	background: #f8fafc;
-	color: #0f172a;
+	background: #2b52ba;
+	color: #ffffff;
 	border: none;
 	padding: 10px;
-	border-radius: 8px;
+	border-radius: 10px;
+	font-family: 'Poppins', sans-serif;
 	font-weight: 600;
 	font-size: 14px;
 	cursor: pointer;
@@ -99,10 +116,11 @@ button {
 	align-items: center;
 	justify-content: center;
 	gap: 8px;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 button:hover {
-	opacity: 0.9;
+	opacity: 0.92;
 	transform: translateY(-1px);
 }
 
@@ -110,76 +128,162 @@ button:active {
 	transform: translateY(0);
 }
 
-#auth-btn svg {
-	display: inline-block;
+button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	transform: none;
 }
 
-#status {
-	margin: 0;
+button.busy {
+	cursor: progress;
+}
+
+.role-btn.secondary,
+.google-btn {
+	background: #ffffff;
+	color: #111827;
+	border: 1px solid #d1d5db;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.link-btn {
+	background: none;
+	color: #6b7280;
+	padding: 4px;
+	font-family: 'Public Sans', sans-serif;
 	font-size: 12px;
-	text-align: center;
-	color: #94a3b8;
-	min-height: 14px;
+	font-weight: 500;
+	text-decoration: underline;
+	box-shadow: none;
 }
 
+.link-btn:hover {
+	color: #111827;
+	opacity: 1;
+	transform: none;
+}
+
+/* ===== Status card: pastel stat-card like the dashboard ===== */
+/* Default / not in call → maroon "Left" card */
 .focus-indicator {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 8px;
-	padding: 20px;
-	position: relative;
-	overflow: hidden;
+	gap: 6px;
+	padding: 18px;
+	background-color: #f0dbe2;
+	border: 2px solid #701a35;
 	transition: all 0.3s ease;
 }
 
-.focus-indicator::before {
-	content: '';
-	position: absolute;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	background: var(--active-color);
-	opacity: 0.1;
-	z-index: 0;
-	transition: background 0.3s ease;
-}
-
 .indicator-title {
-	font-size: 12px;
+	font-family: 'Poppins', sans-serif;
+	font-size: 11px;
+	font-weight: 500;
 	text-transform: uppercase;
 	letter-spacing: 1px;
-	color: #cbd5e1;
-	z-index: 1;
+	color: #701a35;
 }
 
 #currentMode {
 	margin: 0;
+	font-family: 'Poppins', sans-serif;
 	font-size: 24px;
 	font-weight: 700;
-	color: var(--active-color);
-	z-index: 1;
-	text-shadow: 0 0 15px rgba(var(--active-color-rgb), 0.5);
+	line-height: 1;
+	color: #111827;
 	transition: color 0.3s ease;
 }
 
-body.mode-joined {
-	--active-color: var(--color-joined);
-	--active-color-rgb: 59, 130, 246;
+/* In call / focused → green card */
+body.mode-joined .focus-indicator,
+body.mode-returned .focus-indicator {
+	background-color: #9fe2a1;
+	border-color: #22c55e;
 }
 
-body.mode-returned {
-	--active-color: var(--color-returned);
-	--active-color-rgb: 16, 185, 129;
+body.mode-joined .focus-indicator .indicator-title,
+body.mode-returned .focus-indicator .indicator-title {
+	color: #166534;
 }
 
-body.mode-away {
-	--active-color: var(--color-away);
-	--active-color-rgb: 245, 158, 11;
+/* Away → red card */
+body.mode-away .focus-indicator {
+	background-color: #e27d7d;
+	border-color: #dc2626;
 }
 
-body.mode-idle {
-	--active-color: var(--color-idle);
-	--active-color-rgb: 239, 68, 68;
+body.mode-away .focus-indicator .indicator-title {
+	color: #540e0e;
+}
+
+/* Idle → yellow card */
+body.mode-idle .focus-indicator {
+	background-color: #ead566;
+	border-color: #dabf41;
+}
+
+body.mode-idle .focus-indicator .indicator-title {
+	color: #5a490a;
+}
+
+/* ===== Screens & role selection ===== */
+.screen {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.screen[hidden] {
+	display: none;
+}
+
+.role-section,
+.auth-section {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.user-info {
+	font-size: 13px;
+	background: #f9fafb;
+	color: #374151;
+	padding: 8px 12px;
+	border-radius: 8px;
+	border: 1px solid #e5e7eb;
+	word-break: break-all;
+}
+
+.user-info strong {
+	color: #991b1b;
+	font-weight: 600;
+}
+
+.hint,
+.message,
+.connection {
+	margin: 0;
+	font-size: 12px;
+	color: #6b7280;
+	line-height: 1.4;
+}
+
+.message:empty {
+	display: none;
+}
+
+.message.error,
+.connection.error {
+	color: #dc2626;
+}
+
+.connection.ok {
+	color: #15803d;
+}
+
+button:focus-visible,
+input:focus-visible {
+	outline: 2px solid #2b52ba;
+	outline-offset: 2px;
 }
