@@ -26,6 +26,9 @@ async function saveEvent(evt) {
   const { profile } = await chrome.storage.local.get("profile");
   if (profile?.role !== "student" || !profile.consent) return;
 
+  // A malformed timestamp would fail the rules' `time is int` check; default to now
+  if (typeof evt.time !== "number" || !isFinite(evt.time)) evt.time = Date.now();
+
   // Update the popup first so it reflects reality even if the write fails
   await chrome.storage.local.set({ currentMode: evt.type });
 
