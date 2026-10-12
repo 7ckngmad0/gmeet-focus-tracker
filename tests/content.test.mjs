@@ -33,6 +33,7 @@ const document = {
   get visibilityState() { return state.hidden ? 'hidden' : 'visible'; },
   hasFocus: () => state.focus,
   querySelector: () => state.inCall ? {} : null,
+  querySelectorAll: () => [],
   addEventListener: on
 };
 const window = { addEventListener: on };

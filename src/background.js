@@ -1,7 +1,7 @@
 import { collection, addDoc, Timestamp } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { signInWithGoogle, signOutGoogle } from "./auth";
-import { isProfessorEmail, meetCodeFromUrl } from "./config";
+import { isProfessorEmail, meetCodeFromUrl, MEET_CODE_RE } from "./config";
 
 let authInFlight = null;
 
@@ -76,11 +76,13 @@ async function startMeeting(meetingCode, tabId, time) {
   await saveEvent({ type: "JOINED", time, meetingCode });
 }
 
-// Ends the active meeting. With tabId, only if that tab is the meeting tab.
-async function endMeeting(time, tabId) {
+// Ends the active meeting. tabId/meetingCode, when given, must match the open meeting —
+// a stale LEFT from a dying document can otherwise close a newer call.
+async function endMeeting(time, tabId, meetingCode) {
   const { activeMeeting, activeMeetingTabId } = await chrome.storage.local.get(["activeMeeting", "activeMeetingTabId"]);
   if (!activeMeeting) return;
   if (tabId !== undefined && tabId !== activeMeetingTabId) return;
+  if (meetingCode !== undefined && meetingCode !== activeMeeting) return;
 
   await chrome.storage.local.set({ activeMeeting: null, activeMeetingTabId: null });
   await saveEvent({ type: "LEFT", time, meetingCode: activeMeeting });
@@ -90,8 +92,8 @@ async function endMeeting(time, tabId) {
 // Runs here rather than in the popup: in Brave/Edge the Google sign-in window steals focus
 // and closes the popup, which would cancel a sign-in running there. The result is also
 // written to storage so a reopened popup can show it.
-async function handleSignIn(role) {
-  await chrome.storage.local.set({ authError: null });
+async function handleSignIn(role, room) {
+  await chrome.storage.local.remove("authError");
   try {
     const user = await signInWithGoogle({ interactive: true });
 
@@ -106,7 +108,7 @@ async function handleSignIn(role) {
     await chrome.storage.local.set({ profile, syncError: null });
 
     if (role === "professor") {
-      await openDashboard();
+      await openDashboard(room);
     } else {
       // Signed in mid-call: the JOINED sent earlier was skipped, so record it now
       const { activeMeeting } = await chrome.storage.local.get("activeMeeting");
@@ -121,35 +123,57 @@ async function handleSignIn(role) {
   }
 }
 
-// Opens the dashboard for the Meet room in the focused tab, else the last tracked room
-async function openDashboard() {
-  let room = null;
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    room = tab?.url ? meetCodeFromUrl(tab.url) : null;
-  } catch {
-    // No focused window
+// Opens the dashboard for the given room, else the Meet room in the focused tab,
+// else the last tracked room
+async function openDashboard(room) {
+  if (!room) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      room = tab?.url ? meetCodeFromUrl(tab.url) : null;
+    } catch {
+      // No focused window
+    }
+    if (!room) ({ activeMeeting: room } = await chrome.storage.local.get("activeMeeting"));
   }
-  if (!room) ({ activeMeeting: room } = await chrome.storage.local.get("activeMeeting"));
 
   const path = room ? `dashboard/index.html?room=${encodeURIComponent(room)}` : "dashboard/index.html";
   await chrome.tabs.create({ url: chrome.runtime.getURL(path) });
+}
+
+// One interactive sign-in at a time: extra requests attach to the one already running.
+// signIn/signOut share the serialized queue so they can't interleave with each other
+// or with meeting events.
+let signInInFlight = null;
+
+// The dashboard is an extension page hosted in a normal tab, so sender.tab is set;
+// recognize it by its extension URL instead.
+function isDashboardSender(sender) {
+  return !!sender.url?.startsWith(chrome.runtime.getURL("dashboard/"));
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.cmd === "signIn" && !sender.tab) {
     if (msg.role !== "student" && msg.role !== "professor") return;
     if (msg.role === "student" && msg.consent !== true) return;
-    handleSignIn(msg.role).then(sendResponse);
+    const room = typeof msg.room === "string" && MEET_CODE_RE.test(msg.room) ? msg.room : null;
+    if (!signInInFlight) {
+      signInInFlight = serialized(() => handleSignIn(msg.role, room))
+        .finally(() => { signInInFlight = null; });
+    }
+    signInInFlight.then(sendResponse, () => sendResponse({ ok: false, error: "Sign-in failed. Try again." }));
     return true; // respond asynchronously
   }
-  if (msg?.cmd === "signOut" && !sender.tab) {
-    // Record LEFT for an open meeting while still signed in, then sign out
-    serialized(() => endMeeting(Date.now()))
-      .then(() => chrome.storage.local.remove(["profile", "currentMode", "syncError", "authError"]))
-      .then(() => signOutGoogle())
-      .catch(e => console.error("[Meet Focus Tracker] Sign-out failed:", e))
-      .then(() => sendResponse({ ok: true }));
+  if (msg?.cmd === "signOut" && (!sender.tab || isDashboardSender(sender))) {
+    serialized(async () => {
+      try {
+        // Record LEFT for an open meeting while still signed in, then sign out
+        await endMeeting(Date.now());
+        await chrome.storage.local.remove(["profile", "currentMode", "syncError", "authError"]);
+        await signOutGoogle();
+      } catch (e) {
+        console.error("[Meet Focus Tracker] Sign-out failed:", e);
+      }
+    }).then(() => sendResponse({ ok: true }));
     return true;
   }
   if (msg?.cmd === "openDashboard" && !sender.tab) {
@@ -169,7 +193,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   serialized(async () => {
     if (msg.type === "JOINED") return startMeeting(msg.meetingCode, tabId, msg.time);
-    if (msg.type === "LEFT") return endMeeting(msg.time, tabId);
+    if (msg.type === "LEFT") return endMeeting(msg.time, tabId, msg.meetingCode);
 
     // AWAY / RETURNED only count for the tab we're tracking
     const { activeMeeting, activeMeetingTabId } = await chrome.storage.local.get(["activeMeeting", "activeMeetingTabId"]);
@@ -203,16 +227,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   });
 });
 
-// Browser restarted or extension reloaded: a meeting recorded as open can't still be live
+// Browser restarted or extension reloaded: a call can't survive either — the Meet tab at
+// best sits on the rejoin screen and its content script is dead — so unconditionally
+// close whatever was still recorded as open.
 async function closeStaleMeeting() {
-  const { activeMeeting, activeMeetingTabId } = await chrome.storage.local.get(["activeMeeting", "activeMeetingTabId"]);
+  const { activeMeeting } = await chrome.storage.local.get("activeMeeting");
   if (!activeMeeting) return;
-  try {
-    const tab = await chrome.tabs.get(activeMeetingTabId);
-    if (meetCodeFromUrl(tab.url || "") === activeMeeting) return;
-  } catch {
-    // Tab no longer exists
-  }
   await endMeeting(Date.now());
 }
 chrome.runtime.onStartup.addListener(() => serialized(closeStaleMeeting));

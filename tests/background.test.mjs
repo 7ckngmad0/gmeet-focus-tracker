@@ -6,6 +6,7 @@ const store = { profile: { role: 'student', uid: 'u1', email: 'a@x', name: 'A', 
 const written = [];
 const L = {};
 const ev = n => ({ addListener: f => (L[n] = f) });
+let mockTab = null;
 const chrome = {
   storage: { local: {
     get: async k => Object.fromEntries([].concat(k).map(x => [x, store[x]])),
@@ -13,7 +14,7 @@ const chrome = {
     remove: async k => [].concat(k).forEach(x => delete store[x])
   } },
   runtime: { onMessage: ev('msg'), onConnect: ev('connect'), onStartup: ev('startup'), onInstalled: ev('installed'), getURL: p => p },
-  tabs: { onRemoved: ev('removed'), onUpdated: ev('updated'), get: async () => { throw 0; }, query: async () => [], create: async () => {} },
+  tabs: { onRemoved: ev('removed'), onUpdated: ev('updated'), get: async () => { if (!mockTab) throw 0; return mockTab; }, query: async () => [], create: async () => {} },
   idle: { setDetectionInterval() {}, onStateChanged: ev('idle') }
 };
 const deps = {
@@ -49,7 +50,14 @@ const r = msg('AWAY', 1, 'abc-defg-hij', { visible: true }); await flush(); chec
 console.log(r?.ignored ? 'PASS' : 'FAIL', 'ignored reply sent'); if (!r?.ignored) fail = 1;
 L.disc(); msg('AWAY', 1, 'abc-defg-hij', { visible: true }); await flush(); check('AWAY after popup closed saved', ['AWAY:abc-defg-hij']);
 msg('JOINED', 3, 'xyz-wxyz-abc'); await flush(); check('join other room closes first', ['LEFT:abc-defg-hij', 'JOINED:xyz-wxyz-abc']);
+msg('LEFT', 3, 'abc-defg-hij'); await flush(); check('stale LEFT for old room ignored', []);
+msg('LEFT', 3, 'xyz-wxyz-abc'); await flush(); check('content LEFT for current room', ['LEFT:xyz-wxyz-abc']);
+msg('JOINED', 3, 'xyz-wxyz-abc'); await flush(); written.length = 0;
+mockTab = { url: 'https://meet.google.com/xyz-wxyz-abc' };
+L.startup(); await flush(); check('startup closes stale meeting even if tab still on room url', ['LEFT:xyz-wxyz-abc']);
+mockTab = null;
 deps.auth.currentUser = { uid: 'someone-else' };
+msg('JOINED', 3, 'xyz-wxyz-abc'); await flush(); written.length = 0;
 msg('AWAY', 3, 'xyz-wxyz-abc'); await flush(); check('wrong account -> not written', []);
 console.log(store.syncError ? 'PASS' : 'FAIL', 'syncError set:', store.syncError);
 process.exitCode = fail;

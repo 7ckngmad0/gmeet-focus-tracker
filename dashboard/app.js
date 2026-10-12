@@ -256,8 +256,13 @@ function initAuth() {
     if (link) link.textContent = user ? 'SIGN OUT' : 'SIGN IN';
 
     if (user && isProfessorEmail(user.email)) {
-      chrome.storage.local.set({
-        profile: { role: 'professor', uid: user.uid, email: user.email, name: user.displayName }
+      // Don't overwrite an active student profile on the same browser — that would
+      // silently stop their event sync (saveEvent requires role 'student')
+      chrome.storage.local.get("profile").then(({ profile }) => {
+        if (profile?.role === "student") return;
+        chrome.storage.local.set({
+          profile: { role: 'professor', uid: user.uid, email: user.email, name: user.displayName }
+        });
       });
       startListening();
       return;

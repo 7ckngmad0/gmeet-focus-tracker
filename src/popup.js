@@ -76,8 +76,8 @@ async function currentRoom() {
 }
 
 // Sign-in runs in the background service worker so it survives the popup closing
-function requestSignIn(role) {
-  return chrome.runtime.sendMessage({ cmd: "signIn", role, consent: role === "student" });
+function requestSignIn(role, extra = {}) {
+  return chrome.runtime.sendMessage({ cmd: "signIn", role, consent: role === "student", ...extra });
 }
 
 // ===== Rendering from storage =====
@@ -123,17 +123,21 @@ $("role-student").addEventListener("click", () => {
 
 $("role-professor").addEventListener("click", async () => {
   const btn = $("role-professor");
+  const other = $("role-student");
   setMessage("role-message", "");
   setBusy(btn, true);
+  other.disabled = true;
   try {
+    // Send the previewed room along so the dashboard can't open for a different window
+    const result = await requestSignIn("professor", { room: await currentRoom() });
     // On success the background opens the dashboard tab, which closes this popup
-    const result = await requestSignIn("professor");
     if (!result?.ok) setMessage("role-message", result?.error || "Sign-in failed. Try again.");
   } catch (e) {
     console.error("Professor sign-in failed:", e);
     setMessage("role-message", "Sign-in failed. Try again.");
   } finally {
     setBusy(btn, false);
+    other.disabled = false;
   }
 });
 
@@ -167,10 +171,12 @@ $("student-signin-btn").addEventListener("click", async () => {
 async function signOutAndReset() {
   try {
     await chrome.runtime.sendMessage({ cmd: "signOut" });
+    show("screen-role");
   } catch (e) {
     console.error("Sign-out failed:", e);
+    // Show real state instead of claiming a sign-out that didn't happen
+    render();
   }
-  show("screen-role");
 }
 
 $("student-signout").addEventListener("click", signOutAndReset);
@@ -187,5 +193,6 @@ document.querySelectorAll("[data-back]").forEach(btn =>
 // Lets the background know the popup is open (see AWAY handling in background.js)
 chrome.runtime.connect({ name: "popup" });
 
-// Wait for Firebase to restore its saved session before picking a screen
-auth.authStateReady().then(render);
+// Wait for Firebase to restore its saved session before picking a screen; render anyway
+// if that fails so the popup never stays blank
+auth.authStateReady().catch(e => console.error("Auth restore failed:", e)).finally(render);
