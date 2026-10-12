@@ -45,7 +45,7 @@ async function saveEvent(evt) {
       type: evt.type,
       time: evt.time,
       meetingCode: evt.meetingCode,
-      student: profile.name,
+      student: profile.name || profile.email,
       email: profile.email,
       uid: user.uid,
       timestamp: Timestamp.fromMillis(evt.time)
@@ -106,7 +106,7 @@ async function handleSignIn(role, room) {
       throw new Error(`${user.email} isn't recognized as a professor. You can only continue as a student.`);
     }
 
-    const profile = { role, uid: user.uid, email: user.email, name: user.displayName };
+    const profile = { role, uid: user.uid, email: user.email, name: user.displayName || user.email };
     if (role === "student") profile.consent = true;
     await chrome.storage.local.set({ profile, syncError: null });
 
