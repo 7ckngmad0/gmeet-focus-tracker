@@ -6,7 +6,7 @@ service cloud.firestore {
     function isProfessor() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email in [
+        && request.auth.token.email.lower() in [
           'draconic788@gmail.com',
           'renzkerbysajuelaofficial@gmail.com',
           'ajosejustingabriel@gmail.com'
@@ -14,11 +14,21 @@ service cloud.firestore {
     }
 
     match /events/{eventId} {
-      // Students can only add events under their own uid, with a known event type
+      // Students can only add events under their own identity: uid and email must match
+      // the caller's token, the room must be a real Meet code, time can't be in the
+      // future (5 min clock-skew allowance), and no extra fields are allowed.
       allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(
+            ['type', 'time', 'timestamp', 'meetingCode', 'student', 'email', 'uid'])
         && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.student is string
+        && request.resource.data.student.size() <= 200
         && request.resource.data.type in ['JOINED', 'AWAY', 'RETURNED', 'LEFT', 'IDLE', 'LOCKED', 'ACTIVE']
-        && request.resource.data.time is int;
+        && request.resource.data.time is int
+        && request.resource.data.time <= request.time.toMillis() + 300000
+        && request.resource.data.meetingCode.matches('^[a-z]{3}-[a-z]{4}-[a-z]{3}$')
+        && request.resource.data.timestamp is timestamp;
 
       // Only professors can read; nobody can edit or delete events
       allow read: if isProfessor();

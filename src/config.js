@@ -1,5 +1,5 @@
 // Google accounts allowed to open the professor dashboard.
-// This is only a UI gate: keep it in sync with isTeacher() in firestore.rules,
+// This is only a UI gate: keep it in sync with isProfessor() in firestore.rules,
 // which is what actually stops other accounts from reading events.
 export const PROFESSOR_EMAILS = [
   "draconic788@gmail.com",
@@ -19,7 +19,7 @@ export function meetCodeFromUrl(url) {
   try {
     const u = new URL(url);
     if (u.hostname !== "meet.google.com") return null;
-    const code = u.pathname.slice(1);
+    const code = u.pathname.slice(1).replace(/\/+$/, "").toLowerCase();
     return MEET_CODE_RE.test(code) ? code : null;
   } catch {
     return null;
