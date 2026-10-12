@@ -2,14 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="popup.css" rel="stylesheet">
   </head>
   <body>
 
-    <div class="glass-card">
-      <h3>Focus Tracker</h3>
-      <p class="description">
+    <header class="top-navbar">
+      <span class="brand-text">Focus<span class="accent">Tracker</span></span>
+    </header>
+
+    <main class="page-body">
+
+    <div class="session-meta">
+      <h1 class="course-title">Focus Tracker</h1>
+      <p class="course-sub">
         Logs tab switches and idle time during Google Meet classes to Firebase.
       </p>
     </div>
@@ -74,6 +80,8 @@
         <button type="button" class="link-btn" id="professor-signout">Sign out</button>
       </div>
     </section>
+
+    </main>
 
     <script src="popup.js"></script>
   </body>
