@@ -55,23 +55,42 @@
     <!-- ===== 4. Main Deep Maroon Container ===== -->
     <section class="main-panel">
 
+      <div class="session-setup">
+        <label>
+          Meet code
+          <input id="session-meet-code" type="text" maxlength="12" placeholder="abc-defg-hij" autocomplete="off" />
+        </label>
+        <label>
+          Course
+          <input id="session-course" type="text" maxlength="120" placeholder="Course name" />
+        </label>
+        <label>
+          Class label
+          <input id="session-class-label" type="text" maxlength="120" placeholder="Section or class" />
+        </label>
+        <p id="session-message" class="session-message" role="status" aria-live="polite"></p>
+      </div>
+
       <!-- Top control bar -->
       <div class="panel-header-bar">
         <div class="session-controls">
-          <button class="img-btn" id="btn-start" type="button" aria-label="Start">
+          <button class="img-btn" id="btn-start" type="button" aria-label="Start or resume class session" title="Start or resume class session">
             <img src="assets/4-start.png" alt="Start" />
           </button>
-          <button class="img-btn" id="btn-pause" type="button" aria-label="Pause">
+          <button class="img-btn" id="btn-pause" type="button" aria-label="Pause class session" title="Pause class session">
             <img src="assets/4-pause.png" alt="Pause" />
           </button>
-          <button class="img-btn" id="btn-end" type="button" aria-label="End">
+          <button class="img-btn" id="btn-end" type="button" aria-label="End class session" title="End class session">
             <img src="assets/4-end.png" alt="End" />
           </button>
         </div>
 
-        <div class="timer-box">
-          <span>Time Elapsed:</span>
-          <span class="timer-value" id="timer-value">00:00:00</span>
+        <div class="timer-group">
+          <div class="timer-box" aria-label="Class session duration">
+            <span>Session Duration:</span>
+            <span class="timer-value" id="timer-value">00:00:00</span>
+          </div>
+          <p class="timer-note">Shared with students; pauses when the class session is paused.</p>
         </div>
       </div>
 
@@ -123,6 +142,17 @@
     </section>
 
   </div>
+
+  <dialog id="student-details" class="student-dialog" aria-labelledby="student-detail-name">
+    <div class="student-dialog-header">
+      <div>
+        <h2 id="student-detail-name"></h2>
+        <p id="student-detail-email"></p>
+      </div>
+      <button id="close-student-details" class="dialog-close" type="button" aria-label="Close student details">×</button>
+    </div>
+    <div id="student-detail-content"></div>
+  </dialog>
 
   <script src="app.js"></script>
 </body>

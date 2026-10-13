@@ -4,6 +4,11 @@ let src = fs.readFileSync(new URL("../src/background.js", import.meta.url), 'utf
 const cfg = fs.readFileSync(new URL("../src/config.js", import.meta.url), 'utf8').replace(/export /g, '');
 const store = { profile: { role: 'student', uid: 'u1', email: 'a@x', name: 'A', consent: true } };
 const written = [];
+const writtenDocs = [];
+let activeSessionDocs = [
+  { id: 'session-abc', data: () => ({ meetingCode: 'abc-defg-hij', status: 'active', startedAtMs: 1 }) },
+  { id: 'session-xyz', data: () => ({ meetingCode: 'xyz-wxyz-abc', status: 'active', startedAtMs: 1 }) }
+];
 const L = {};
 const ev = n => ({ addListener: f => (L[n] = f) });
 let mockTab = null;
@@ -14,17 +19,28 @@ const chrome = {
     remove: async k => [].concat(k).forEach(x => delete store[x])
   } },
   runtime: { onMessage: ev('msg'), onConnect: ev('connect'), onStartup: ev('startup'), onInstalled: ev('installed'), getURL: p => p },
-  tabs: { onRemoved: ev('removed'), onUpdated: ev('updated'), get: async () => { if (!mockTab) throw 0; return mockTab; }, query: async () => [], create: async () => {} },
+  tabs: { onRemoved: ev('removed'), onUpdated: ev('updated'), get: async () => { if (!mockTab) throw 0; return mockTab; }, query: async () => [{}, {}, {}], create: async () => {} },
+  alarms: { onAlarm: ev('alarm'), create() {} },
   idle: { setDetectionInterval() {}, onStateChanged: ev('idle') }
 };
 const deps = {
-  collection: () => 0,
-  addDoc: async (_, d) => written.push(`${d.type}:${d.meetingCode}`),
-  Timestamp: { fromMillis: x => x },
+  collection: (_, name) => name,
+  doc: (_, name, id) => `${name}/${id}`,
+  query: (...args) => args,
+  where: (...args) => args,
+  getDocs: async () => ({ docs: activeSessionDocs }),
+  setDoc: async (_, d) => {
+    writtenDocs.push(d);
+    written.push(`${d.type}:${d.meetingCode}`);
+  },
+  serverTimestamp: () => 'server-time',
   auth: { authStateReady: async () => {}, currentUser: { uid: 'u1' } },
   db: 0, signInWithGoogle: async () => null, signOutGoogle: async () => {}
 };
-new Function('chrome', ...Object.keys(deps), cfg + src)(chrome, ...Object.values(deps));
+const navigator = { onLine: true };
+let id = 0;
+const crypto = { randomUUID: () => `event-${++id}` };
+new Function('chrome', 'navigator', 'crypto', ...Object.keys(deps), cfg + src)(chrome, navigator, crypto, ...Object.values(deps));
 const flush = () => new Promise(r => setTimeout(r, 20));
 const msg = (type, tab, code, extra = {}) => { let resp; L.msg({ type, time: 1, meetingCode: code, ...extra }, { tab: { id: tab } }, r => (resp = r)); return resp; };
 let fail = 0;
@@ -35,6 +51,18 @@ const check = (label, exp) => {
   written.length = 0;
 };
 msg('JOINED', 1, 'abc-defg-hij'); await flush(); check('join', ['JOINED:abc-defg-hij']);
+const firstEvent = writtenDocs[0];
+const expectedFields = ['type', 'time', 'clientTime', 'meetingCode', 'sessionId', 'student', 'email', 'uid', 'tabCount', 'receivedAt'].sort();
+const actualFields = Object.keys(firstEvent).sort();
+const validShape = JSON.stringify(actualFields) === JSON.stringify(expectedFields)
+  && firstEvent.sessionId === 'session-abc'
+  && firstEvent.time === firstEvent.clientTime
+  && firstEvent.tabCount === 3
+  && firstEvent.receivedAt === 'server-time';
+console.log(validShape ? 'PASS' : 'FAIL', 'event matches session rules field shape');
+if (!validShape) fail = 1;
+msg('HEARTBEAT', 1, 'abc-defg-hij'); await flush();
+check('presence heartbeat is saved for the active meeting', ['HEARTBEAT:abc-defg-hij']);
 msg('AWAY', 2, 'abc-defg-hij'); await flush(); check('AWAY from other tab ignored', []);
 L.idle('idle'); await flush(); check('idle while in meeting', ['IDLE:abc-defg-hij']);
 L.updated(1, { url: 'https://meet.google.com/abc-defg-hij?authuser=0' }); await flush(); check('same-room url change keeps meeting', []);
@@ -60,4 +88,12 @@ deps.auth.currentUser = { uid: 'someone-else' };
 msg('JOINED', 3, 'xyz-wxyz-abc'); await flush(); written.length = 0;
 msg('AWAY', 3, 'xyz-wxyz-abc'); await flush(); check('wrong account -> not written', []);
 console.log(store.syncError ? 'PASS' : 'FAIL', 'syncError set:', store.syncError);
+deps.auth.currentUser = { uid: 'u1' };
+activeSessionDocs = [];
+msg('AWAY', 3, 'xyz-wxyz-abc'); await flush();
+check('events outside an active session are not written', []);
+const sessionGateOk = store.syncError === 'no active class session for this Meet'
+  && (store.outbox || []).length === 0;
+console.log(sessionGateOk ? 'PASS' : 'FAIL', 'inactive session event rejected before queueing');
+if (!sessionGateOk) fail = 1;
 process.exitCode = fail;

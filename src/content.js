@@ -3,12 +3,11 @@
 
 import { MEET_CODE_RE } from "./config";
 
-// Ignore focus changes shorter than this (e.g. opening the extension popup, a quick alt-tab)
 const AWAY_DEBOUNCE_MS = 1500;
-// How often to re-check call state; Meet is a single-page app, so the URL and DOM change in place
 const POLL_MS = 1000;
+const HEARTBEAT_MS = 30000;
 
-let currentRoom = null;   // room we've reported JOINED for
+let currentRoom = null; 
 let away = false;
 let awayTimer = null;
 
@@ -17,9 +16,6 @@ function roomFromLocation() {
   return MEET_CODE_RE.test(code) ? code : null;
 }
 
-// The "Leave call" button only exists once the student is in the call (not the lobby or
-// post-call screen). Its aria-label is localized, so fall back to the hang-up button's
-// material icon, which reads "call_end" in every locale.
 function inCall() {
   if (document.querySelector('[aria-label*="leave call" i]')) return true;
   for (const el of document.querySelectorAll(".google-material-icons, .material-icons, .material-symbols-outlined")) {
@@ -37,8 +33,6 @@ function sendEvent(type, meetingCode, extra = {}) {
   }
 }
 
-// Visible but unfocused usually means the extension popup, DevTools or another window
-// on top of Meet; only a hidden tab counts as definitely away.
 function isAwayNow() {
   return document.visibilityState === "hidden" || !document.hasFocus();
 }
@@ -107,4 +101,7 @@ window.addEventListener("pagehide", leave);
 window.addEventListener("beforeunload", leave);
 
 setInterval(checkCallState, POLL_MS);
+setInterval(() => {
+  if (currentRoom) sendEvent("HEARTBEAT", currentRoom);
+}, HEARTBEAT_MS);
 checkCallState();
