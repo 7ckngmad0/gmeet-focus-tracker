@@ -38,13 +38,15 @@ If you used v1 before, click ↻ reload on the extension card and sign in again 
 **Professor**
 1. Open the popup and click **I am a Professor**, then sign in.
 2. Only the emails in `src/config.js` are accepted. Any other account is signed out and sent back to role selection.
-3. The dashboard opens in a new tab. If the active tab is a Meet room, the dashboard shows only that room (`?room=abc-defg-hij`). Otherwise it shows every meeting from today.
+3. The dashboard opens in a new tab. If the active tab is a Meet room, its code is prefilled; otherwise enter the Meet code manually.
+4. Enter the course and class label, then click **Start**. Students' events are accepted only while an active session exists for that Meet.
+5. Use **Pause** to stop accepting new tracking events temporarily, **Start** to resume, and **End** to finish the session. Session state and elapsed time are stored in Firestore.
 
 The dashboard is now part of the extension. `npx serve dashboard` no longer works.
 
 ## 4. One-time project setup (owner only)
 
-**Firestore rules.** Copy `firestore.rules` into Firebase console → Firestore Database → Rules, then click Publish. If you add a professor, update both:
+**Firestore rules.** Copy `firestore.rules` into Firebase console → Firestore Database → Rules, then click Publish. The extension and dashboard depend on both the `sessions` and `events` rules. Event writes require the submitted email to match the authenticated, verified account email and to reference the matching Meet session. The rules must include the `HEARTBEAT` event type for stale-presence detection. If a student's events are rejected, have them sign in again with their Google account. If you add a professor, update both:
 - `PROFESSOR_EMAILS` in `src/config.js`
 - the list in `firestore.rules`
 
@@ -60,7 +62,7 @@ Chrome works without this.
 
 1. Run `npm run build`.
 2. Click ↻ reload on the extension card.
-3. Refresh any open Meet tab. Content scripts don't reload on their own.
+3. Refresh any open Meet tab. Content scripts don't reload on their own. Students must reload the extension and refresh Meet to send presence heartbeats.
 
 ## 6. Troubleshooting
 
