@@ -51,6 +51,7 @@ const check = (label, expected) => {
 await advance(3000); check('home page sends nothing', []);
 state.path = '/abc-defg-hij'; await advance(3000); check('lobby (no leave button) sends nothing', []);
 state.inCall = true; await advance(1100); check('in call -> JOINED', ['JOINED']);
+await advance(30000); check('active call sends a presence heartbeat', ['HEARTBEAT']);
 state.focus = false; state.popupOpen = true; fire('blur'); await advance(3000);
 check('popup open -> AWAY probe ignored, no RETURNED', ['AWAY(visible=true)']);
 state.focus = true; state.popupOpen = false; fire('focus'); await advance(500); check('focus back after popup -> nothing', []);
