@@ -1,90 +1,131 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
+    <link rel="icon" type="image/png" href="icon-32.png" />
     <meta charset="UTF-8" />
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="popup.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="popup.css" rel="stylesheet" />
+    <title>iSeenta</title>
   </head>
   <body>
-
-    <header class="top-navbar">
-      <div class="brand">
-        <img src="dashboard/assets/1.png" alt="PUP logo" class="brand-logo" />
-        <span class="brand-text">PUP <span class="accent-i">i</span><span class="accent-seen">SEEN</span><span class="accent-ta">TA</span></span>
+    <div class="extension-popup">
+    <header class="popup-header">
+      <div class="brand-block">
+        <svg class="brand-wordmark" viewBox="-30 -770 3712 850" role="img" aria-label="iSeenta" xmlns="http://www.w3.org/2000/svg"><title>iSeenta</title><path class="seenta-letters" fill="currentColor" d="M66 0V-525H210V0ZM139 -604Q97 -604 74.5 -621.5Q52 -639 52 -673Q52 -708 74.5 -726Q97 -744 139 -744Q182 -744 204.5 -726Q227 -708 227 -673Q227 -640 204.5 -622Q182 -604 139 -604Z M593 14Q528 14 476.5 1.5Q425 -11 388.5 -36.5Q352 -62 331.5 -100.5Q311 -139 308 -189L434 -230Q436 -185 456.5 -155Q477 -125 515 -111Q553 -97 600 -97Q645 -97 676 -108Q707 -119 723 -137.5Q739 -156 739 -178Q739 -204 719 -220Q699 -236 664.5 -247Q630 -258 586 -268Q537 -279 489.5 -293Q442 -307 403.5 -329Q365 -351 342.5 -386Q320 -421 320 -474Q320 -535 350.5 -579.5Q381 -624 440 -649Q499 -674 582 -674Q666 -674 725.5 -649.5Q785 -625 818 -580.5Q851 -536 854 -475L724 -439Q724 -470 714 -493Q704 -516 686 -531.5Q668 -547 641.5 -555Q615 -563 581 -563Q542 -563 513.5 -553Q485 -543 470.5 -526Q456 -509 456 -486Q456 -459 478.5 -441.5Q501 -424 538.5 -413Q576 -402 621 -392Q664 -383 708.5 -369.5Q753 -356 791.5 -334.5Q830 -313 853.5 -276.5Q877 -240 877 -185Q877 -125 845 -80Q813 -35 749.5 -10.5Q686 14 593 14Z M1194 14Q1129 14 1078.5 -4Q1028 -22 993 -56Q958 -90 939.5 -140Q921 -190 921 -253Q921 -315 938.5 -367.5Q956 -420 990 -458.5Q1024 -497 1073 -518Q1122 -539 1184 -539Q1244 -539 1291 -519.5Q1338 -500 1369.5 -461Q1401 -422 1415.5 -365.5Q1430 -309 1426 -236L1059 -232Q1063 -165 1096 -131Q1133 -91 1194 -91Q1222 -91 1241.5 -98.5Q1261 -106 1273.5 -118Q1286 -130 1293.5 -145Q1301 -160 1306 -175L1431 -148Q1422 -111 1404.5 -81.5Q1387 -52 1358 -30.5Q1329 -9 1288.5 2.5Q1248 14 1194 14ZM1063 -311 1294 -314Q1293 -341 1285 -361Q1271 -395 1244.5 -411Q1218 -427 1186 -427Q1148 -427 1119 -407Q1090 -387 1074 -349Q1067 -331 1063 -311Z M1808 14Q1743 14 1692.5 -4Q1642 -22 1607 -56Q1572 -90 1553.5 -140Q1535 -190 1535 -253Q1535 -315 1552.5 -367.5Q1570 -420 1604 -458.5Q1638 -497 1687 -518Q1736 -539 1798 -539Q1858 -539 1905 -519.5Q1952 -500 1983.5 -461Q2015 -422 2029.5 -365.5Q2044 -309 2040 -236L1673 -232Q1677 -165 1710 -131Q1747 -91 1808 -91Q1836 -91 1855.5 -98.5Q1875 -106 1887.5 -118Q1900 -130 1907.5 -145Q1915 -160 1920 -175L2045 -148Q2036 -111 2018.5 -81.5Q2001 -52 1972 -30.5Q1943 -9 1902.5 2.5Q1862 14 1808 14ZM1677 -311 1908 -314Q1907 -341 1899 -361Q1885 -395 1858.5 -411Q1832 -427 1800 -427Q1762 -427 1733 -407Q1704 -387 1688 -349Q1681 -331 1677 -311Z M2129 0V-525H2247L2246 -368H2266Q2279 -425 2303 -463Q2327 -501 2363.5 -520Q2400 -539 2450 -539Q2541 -539 2588.5 -475Q2636 -411 2636 -274V0H2491V-258Q2491 -342 2466.5 -380.5Q2442 -419 2395 -419Q2355 -419 2328 -394Q2301 -369 2287.5 -328.5Q2274 -288 2273 -238V0Z M2943 12Q2855 12 2813.5 -34.5Q2772 -81 2772 -183V-412H2696L2698 -525H2751Q2782 -525 2797 -534Q2812 -543 2815 -567L2828 -642H2910V-525H3043V-408H2910V-189Q2910 -153 2927 -137Q2944 -121 2979 -121Q2998 -121 3015.5 -125Q3033 -129 3046 -138V-4Q3015 6 2989 9Q2963 12 2943 12Z M3256 14Q3212 14 3178 -3.5Q3144 -21 3125 -54Q3106 -87 3106 -136Q3106 -179 3122.5 -208Q3139 -237 3171 -255Q3203 -273 3250 -285Q3297 -297 3357 -306Q3389 -311 3409.5 -315.5Q3430 -320 3440 -330.5Q3450 -341 3450 -361Q3450 -389 3430 -409Q3410 -429 3367 -429Q3338 -429 3313.5 -419Q3289 -409 3271.5 -389Q3254 -369 3246 -338L3119 -377Q3131 -418 3153.5 -448Q3176 -478 3208 -498.5Q3240 -519 3281 -529Q3322 -539 3370 -539Q3447 -539 3495.5 -514.5Q3544 -490 3568 -438.5Q3592 -387 3592 -306V-216Q3592 -181 3593.5 -145Q3595 -109 3597.5 -72.5Q3600 -36 3603 0H3476Q3472 -25 3468.5 -57.5Q3465 -90 3463 -123H3445Q3431 -85 3405 -54Q3379 -23 3341.5 -4.5Q3304 14 3256 14ZM3317 -90Q3336 -90 3355.5 -97Q3375 -104 3393.5 -116.5Q3412 -129 3427.5 -148Q3443 -167 3453 -191L3451 -257Q3442 -253 3432 -250Q3408 -242 3382.5 -238Q3357 -234 3332 -229Q3307 -224 3287.5 -216Q3268 -208 3256.5 -194.5Q3245 -181 3245 -157Q3245 -126 3265 -108Q3285 -90 3317 -90Z"/><g class="seenta-glasses" fill="none" stroke="currentColor" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"><path d="M1379.0 -366.5 Q1483.0 -436.5 1587.0 -366.5"/></g></svg>
+        <span class="brand-caption">Class activity tracker</span>
       </div>
+      <button type="button" class="btn btn-ghost btn-icon icon-bordered theme-toggle" id="theme-toggle" aria-label="Switch to dark theme" title="Switch to dark theme"><span class="theme-orb" aria-hidden="true"></span></button>
     </header>
 
-    <main class="page-body">
-
-    <div class="session-meta">
-      <h1 class="course-title">Focus Tracker</h1>
-      <p class="course-sub">
-        Logs tab switches and idle time during Google Meet classes to Firebase.
-      </p>
-    </div>
-
-    <!-- Screen 1: choose a role -->
-    <section id="screen-role" class="screen" hidden>
-      <div class="glass-card role-section">
-        <span class="indicator-title">Who are you?</span>
-        <button type="button" class="role-btn" id="role-student">I am a Student</button>
-        <button type="button" class="role-btn secondary" id="role-professor">I am a Professor</button>
-        <p class="message" id="role-message" role="alert"></p>
-      </div>
-    </section>
-
-    <!-- Screen 2: student consent + sign-in -->
-    <section id="screen-student-signin" class="screen" hidden>
-      <div class="glass-card auth-section">
-        <label>
-          <input type="checkbox" id="consent" />
-          Enable activity and focus tracking
-        </label>
-        <p class="hint">Required. Tracking only runs while you're in a Google Meet call.</p>
-
-        <button type="button" id="student-signin-btn" class="google-btn" disabled>
-          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          Sign in with Google
-        </button>
-        <p class="message" id="student-message" role="alert"></p>
-        <button type="button" class="link-btn" data-back>Back</button>
-      </div>
-    </section>
-
-    <!-- Screen 3: signed-in student -->
-    <section id="screen-student" class="screen" hidden>
-      <div class="glass-card focus-indicator">
-        <span class="indicator-title">Current Status</span>
-        <p id="currentMode">NOT IN A CALL</p>
-      </div>
-
-      <div class="glass-card auth-section">
-        <div class="user-info">
-          Signed in as student:<br><strong id="student-email"></strong>
+    <main class="popup-main">
+      <section id="screen-role" class="screen" hidden>
+        <div class="popup-body">
+          <h1>A little more present.</h1>
+          <p class="lede">Connect to your class with Seenta.</p>
+          <div class="role-options">
+            <button type="button" class="role-option primary-role" id="role-student">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg>
+              <span><strong>I am a student</strong><small>Share your activity during class.</small></span>
+              <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <button type="button" class="role-option" id="role-professor">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>
+              <span><strong>I am a professor</strong><small>See your class activity in one place.</small></span>
+              <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          </div>
+          <p class="message" id="role-message" role="alert"></p>
+          <p class="popup-quiet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 22v-4a2 2 0 1 0-4 0v4"/><path d="m18 10 4 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8l4-2"/><path d="M18 5v17"/><path d="m4 6 8-4 8 4"/><path d="M6 5v17"/><circle cx="12" cy="9" r="2"/></svg><span>Made for the Polytechnic University of the Philippines.</span></p>
         </div>
-        <p class="connection" id="connection"></p>
-        <button type="button" class="link-btn" id="student-signout">Sign out</button>
-      </div>
-    </section>
+      </section>
 
-    <!-- Screen 4: signed-in professor -->
-    <section id="screen-professor" class="screen" hidden>
-      <div class="glass-card auth-section">
-        <div class="user-info">
-          Signed in as professor:<br><strong id="professor-email"></strong>
+      <section id="screen-student-signin" class="screen" hidden>
+        <div class="popup-body">
+          <div class="consent-top">
+            <div class="consent-shield"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg></div>
+            <button type="button" class="back-btn" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>Back to roles</button>
+          </div>
+          <h2>Enable focus tracking</h2>
+          <p class="lede">Share a few activity signals with your professor while you’re in class.</p>
+          <label class="consent-row"><input type="checkbox" id="consent" /><span>I agree to share my activity<small>Meet tab visibility, idle status and open tab count</small></span></label>
+          <button type="button" id="student-signin-btn" class="btn btn-outline wide" disabled>
+            <svg class="g-logo" width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+            Continue with Google
+          </button>
+          <p class="message" id="student-message" role="alert"></p>
+          <p class="popup-quiet"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span>No tab titles, URLs or browsing content are collected.</span></p>
         </div>
-        <button type="button" id="open-dashboard">Open Dashboard</button>
-        <p class="hint" id="professor-room"></p>
-        <button type="button" class="link-btn" id="professor-signout">Sign out</button>
-      </div>
-    </section>
+      </section>
 
+      <section id="screen-student" class="screen" hidden>
+        <div class="popup-body">
+          <div class="status-hero signal-not-detected" id="status-hero" aria-live="polite">
+            <div id="eye-slot"></div>
+            <h2 id="currentMode">Not in a call</h2>
+            <p id="status-caption">Join your class Meet to start sharing activity.</p>
+          </div>
+          <div class="popup-meeting">
+            <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg><span id="meetingCode">Waiting for class</span></div>
+            <span id="sessionState" class="session-pill">Waiting</span>
+          </div>
+          <section class="afk-notice" aria-labelledby="afk-title">
+            <div class="afk-head"><span class="afk-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/></svg></span><div class="afk-notice-copy"><strong id="afk-title">Stepping away?</strong><p>Let your professor know when you need to leave briefly.</p></div></div>
+            <button type="button" class="btn btn-outline afk-open" id="afk-open" disabled>Send AFK notice</button>
+            <div class="afk-form" id="afk-form" hidden>
+              <p class="afk-label" id="afk-reason-label">Choose a reason</p>
+              <input type="hidden" id="afk-reason" value="Short break" />
+              <div class="reason-chips" role="group" aria-labelledby="afk-reason-label">
+                <button type="button" class="reason-chip" data-reason="Short break" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/></svg>Short break</button>
+                <button type="button" class="reason-chip" data-reason="Urgent matter" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>Urgent matter</button>
+                <button type="button" class="reason-chip" data-reason="Other" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>Other</button>
+              </div>
+              <div class="afk-form-actions"><button type="button" class="btn btn-ghost btn-sm" id="afk-cancel">Cancel</button><button type="button" class="btn btn-primary btn-sm" id="afk-send">Send notice</button></div>
+            </div>
+            <p class="afk-feedback" id="afk-feedback" role="status" aria-live="polite"></p>
+          </section>
+          <section class="professor-alert" id="professor-alert" role="status" aria-live="assertive" hidden>
+            <span class="alert-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></span>
+            <div><strong>Message from your professor</strong><p id="professor-alert-message"></p></div>
+            <button type="button" class="btn btn-ghost btn-sm" id="dismiss-professor-alert">Dismiss</button>
+          </section>
+          <button type="button" class="btn btn-primary student-im-back" id="student-im-back" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>I'm back</button>
+          <section class="privacy-section">
+            <h3>What your professor sees</h3>
+            <ul class="privacy-list">
+              <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg><span id="privacy-meet">Not connected to Meet</span></li>
+              <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><span id="privacy-idle">Device not idle or locked</span></li>
+              <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg><span>Number of open browser tabs</span></li>
+            </ul>
+            <p class="privacy-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Nothing else is shared. Your browsing stays private.</p>
+          </section>
+          <p class="connection" id="connection"></p>
+          <div class="popup-account">
+            <span class="account-email" id="student-email"></span>
+            <button type="button" class="btn btn-ghost btn-sm" id="student-signout">Sign out</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-professor" class="screen" hidden>
+        <div class="popup-body professor-popup">
+          <div class="avatar" id="professor-avatar" aria-hidden="true">P</div>
+          <h2>Welcome back</h2>
+          <p class="account-email" id="professor-email"></p>
+          <button type="button" id="open-dashboard" class="btn btn-primary wide">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>
+            Open live dashboard
+          </button>
+          <div class="room-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg><span id="professor-room"></span></div>
+          <p class="popup-quiet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg><span>Class activity is visible only to the professor for this session.</span></p>
+          <button type="button" class="btn btn-ghost wide" id="professor-signout">Sign out</button>
+        </div>
+      </section>
     </main>
+    </div>
 
     <script src="popup.js"></script>
   </body>
