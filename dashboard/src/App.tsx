@@ -282,6 +282,7 @@ export default function App() {
   const activityResponseInitializedRef = useRef(new Set<string>());
   const activityKnownResponseIdsRef = useRef(new Set<string>());
   const activityUnreadResponseIdsRef = useRef(new Set<string>());
+  const activityResponseErrorsRef = useRef(new Map<string, string>());
   const activitySessionKeyRef = useRef("");
   const showClassActivitiesRef = useRef(false);
   const [user, setUser] = useState(() => mockStudentCount ? ({ uid: "local-preview-professor", email: "preview@localhost" } as NonNullable<typeof auth.currentUser>) : auth.currentUser);
@@ -295,6 +296,7 @@ export default function App() {
   const [activityDurationSeconds, setActivityDurationSeconds] = useState(60);
   const [creatingActivity, setCreatingActivity] = useState(false);
   const [activityError, setActivityError] = useState("");
+  const [activityResponseError, setActivityResponseError] = useState("");
   const [activityUnreadCount, setActivityUnreadCount] = useState(0);
   const [showClassActivities, setShowClassActivities] = useState(false);
   const [activityResultFilter, setActivityResultFilter] = useState<"all" | "open" | "closed">("all");
@@ -554,6 +556,11 @@ export default function App() {
     });
   }, [user?.uid, activeSession?.id, activeSession?.teacherUid, sessionRecap?.session.id, sessionRecap?.session.teacherUid, mockStudentCount]);
   useEffect(() => {
+    const activityIds = new Set(classActivities.map(activity => activity.id));
+    for (const activityId of activityResponseErrorsRef.current.keys()) {
+      if (!activityIds.has(activityId)) activityResponseErrorsRef.current.delete(activityId);
+    }
+    setActivityResponseError(activityResponseErrorsRef.current.values().next().value ?? "");
     if (!classActivities.length) {
       setActivityResponses({});
       activityResponseInitializedRef.current.clear();
@@ -565,6 +572,8 @@ export default function App() {
     const unsubscribers = classActivities.map(activity => onSnapshot(
       collection(db, "classActivities", activity.id, "responses"),
       snapshot => {
+        activityResponseErrorsRef.current.delete(activity.id);
+        setActivityResponseError(activityResponseErrorsRef.current.values().next().value ?? "");
         const knownIds = activityKnownResponseIdsRef.current;
         if (!activityResponseInitializedRef.current.has(activity.id)) {
           snapshot.docs.forEach(item => knownIds.add(`${activity.id}:${item.id}`));
@@ -586,9 +595,11 @@ export default function App() {
       },
       error => {
         console.error("Could not load class activity responses", error);
-        setActivityError(error.code === "permission-denied"
+        const message = error.code === "permission-denied"
           ? "Firestore denied access to student responses. Publish the latest firestore.rules."
-          : "Could not load student responses. Check your connection and try again.");
+          : "Could not load student responses. Check your connection and try again.";
+        activityResponseErrorsRef.current.set(activity.id, message);
+        setActivityResponseError(activityResponseErrorsRef.current.values().next().value ?? message);
       }
     ));
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
@@ -1158,7 +1169,7 @@ export default function App() {
             {creatingActivity ? "Starting…" : openClassActivity ? "Wait for responses" : "Start response round"}
           </button>
         </div>
-        {activityError && <p className="class-activity-error" role="alert">{activityError}</p>}
+        {(activityError || activityResponseError) && <p className="class-activity-error" role="alert">{activityError || activityResponseError}</p>}
         <div className="class-activity-results-heading"><div><h3>Question results</h3><p>Each round keeps its own response list.</p></div><div className="class-activity-filters" role="group" aria-label="Filter response rounds">
           <button type="button" aria-pressed={activityResultFilter === "all"} onClick={() => setActivityResultFilter("all")}>All <span>{classActivities.length}</span></button>
           <button type="button" aria-pressed={activityResultFilter === "open"} onClick={() => setActivityResultFilter("open")}>Open <span>{activityOpenCount}</span></button>
