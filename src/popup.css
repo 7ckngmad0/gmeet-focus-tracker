@@ -311,5 +311,17 @@ strong { font-weight: 600; }
 .activity-feedback:empty { display: none; }
 .activity-feedback.success { color: var(--active-text); }
 .activity-feedback.error { color: var(--danger); }
+.activity-options { display: grid; gap: 7px; }
+.activity-options[hidden], #activity-answer[hidden], #activity-answer-label[hidden] { display: none !important; }
+.activity-option { display: grid; grid-template-columns: 16px 26px minmax(0, 1fr); align-items: center; gap: 9px; min-height: 46px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--background); color: var(--foreground); cursor: pointer; transition: border-color .16s ease, background-color .16s ease, transform .16s ease; }
+.activity-option:hover { border-color: color-mix(in oklch, var(--primary) 45%, var(--border)); transform: translateY(-1px); }
+.activity-option:has(input:checked) { border-color: var(--primary); background: color-mix(in oklch, var(--primary) 7%, var(--card)); }
+.activity-option input { width: 15px; height: 15px; margin: 0; accent-color: var(--primary); }
+.activity-option-marker { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: var(--secondary); color: var(--muted-foreground); font-size: 10px; font-weight: 700; }
+.activity-option-copy { min-width: 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.4; }
+.activity-option:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.activity-option input:disabled { cursor: not-allowed; }
+.activity-option:has(input:disabled) { cursor: not-allowed; opacity: .72; transform: none; }
+.activity-countdown { font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) { #eye-slot, .session-pill.live::before { animation: none !important; } }

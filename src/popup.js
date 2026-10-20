@@ -42,6 +42,7 @@ let activityResponseUnsubscribe = null;
 let activityCountdownTimer = null;
 let currentClassActivity = null;
 let currentActivityResponse = null;
+let renderedChoiceActivityId = "";
 
 function setActivityFeedback(text, kind = "") {
   const feedback = $("activity-feedback");
@@ -56,9 +57,43 @@ function renderClassActivity() {
 
   const remainingMs = Math.max(0, Number(activity.expiresAtMs) - Date.now());
   const expired = remainingMs <= 0;
-  $("activity-word").textContent = activity.word;
+  const multipleChoice = activity.responseType === "multiple-choice";
+  const prompt = activity.question || activity.word || "Class question";
+  $("class-activity-title").textContent = multipleChoice ? "Quick class poll" : "Quick class question";
+  $("activity-instruction").textContent = multipleChoice ? (activity.correctAnswer ? "Choose the best answer:" : "Choose an option:") : "Your professor asks:";
+  $("activity-word").textContent = prompt;
   $("activity-countdown").textContent = expired ? "Time is up" : `${Math.ceil(remainingMs / 1000)}s left`;
-  $("activity-answer").disabled = expired || Boolean(currentActivityResponse);
+  $("activity-options").hidden = !multipleChoice;
+  $("activity-answer").hidden = multipleChoice;
+  $("activity-answer-label").hidden = multipleChoice;
+  if (multipleChoice && renderedChoiceActivityId !== activity.id) {
+    const options = $("activity-options");
+    options.replaceChildren();
+    (Array.isArray(activity.options) ? activity.options : []).forEach((option, index) => {
+      const label = document.createElement("label");
+      label.className = "activity-option";
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "activity-choice";
+      radio.value = option;
+      radio.checked = currentActivityResponse?.answer === option;
+      radio.disabled = expired || Boolean(currentActivityResponse);
+      const marker = document.createElement("span");
+      marker.className = "activity-option-marker";
+      marker.textContent = String.fromCharCode(65 + index);
+      const copy = document.createElement("span");
+      copy.className = "activity-option-copy";
+      copy.textContent = option;
+      label.append(radio, marker, copy);
+      options.append(label);
+    });
+    renderedChoiceActivityId = activity.id;
+  }
+  $("activity-options").querySelectorAll("input").forEach(input => {
+    input.disabled = expired || Boolean(currentActivityResponse);
+    input.checked = currentActivityResponse?.answer === input.value;
+  });
+  $("activity-answer").disabled = multipleChoice || expired || Boolean(currentActivityResponse);
   $("activity-submit").disabled = expired || Boolean(currentActivityResponse);
   if (currentActivityResponse) {
     setActivityFeedback("Your answer was recorded.", "success");
@@ -83,6 +118,8 @@ function watchClassActivity(profile, sessionId) {
   currentClassActivity = null;
   currentActivityResponse = null;
   $("activity-answer").value = "";
+  renderedChoiceActivityId = "";
+  $("activity-options").replaceChildren();
   setActivityFeedback("");
   renderClassActivity();
   if (!key) return;
@@ -104,6 +141,8 @@ function watchClassActivity(profile, sessionId) {
       activityResponseUnsubscribe = null;
       currentActivityResponse = null;
       $("activity-answer").value = "";
+      renderedChoiceActivityId = "";
+      $("activity-options").replaceChildren();
       setActivityFeedback("");
       currentClassActivity = activity;
       if (activity) {
@@ -482,11 +521,13 @@ $("afk-cancel").addEventListener("click", () => { $("afk-form").hidden = true; }
 $("activity-response-form").addEventListener("submit", async event => {
   event.preventDefault();
   const activity = currentClassActivity;
-  const answer = $("activity-answer").value.trim();
+  const answer = activity?.responseType === "multiple-choice"
+    ? $("activity-options").querySelector('input[name="activity-choice"]:checked')?.value || ""
+    : $("activity-answer").value.trim();
   const button = $("activity-submit");
   if (!activity || button.disabled) return;
   if (!answer) {
-    setActivityFeedback("Type an answer before submitting.", "error");
+    setActivityFeedback(activity?.responseType === "multiple-choice" ? "Choose an option before submitting." : "Type an answer before submitting.", "error");
     return;
   }
   if (Number(activity.expiresAtMs) <= Date.now()) {

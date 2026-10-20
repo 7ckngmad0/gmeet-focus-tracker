@@ -17,6 +17,18 @@ service cloud.firestore {
         && code.matches('^[a-z]{3}-[a-z]{4}-[a-z]{3}$');
     }
 
+    function validActivityOptions(options) {
+      return options is list
+        && options.size() >= 2
+        && options.size() <= 6
+        && options[0] is string && options[0].size() > 0 && options[0].size() <= 120
+        && options[1] is string && options[1].size() > 0 && options[1].size() <= 120
+        && (options.size() < 3 || (options[2] is string && options[2].size() > 0 && options[2].size() <= 120))
+        && (options.size() < 4 || (options[3] is string && options[3].size() > 0 && options[3].size() <= 120))
+        && (options.size() < 5 || (options[4] is string && options[4].size() > 0 && options[4].size() <= 120))
+        && (options.size() < 6 || (options[5] is string && options[5].size() > 0 && options[5].size() <= 120));
+    }
+
     function validSessionTransition() {
       return request.resource.data.status == 'paused'
           && resource.data.status == 'active'
@@ -191,7 +203,8 @@ service cloud.firestore {
     match /classActivities/{activityId} {
       allow create: if isProfessor()
         && request.resource.data.keys().hasOnly([
-          'sessionId', 'teacherUid', 'meetingCode', 'word', 'targetUids', 'targetStudents',
+          'sessionId', 'teacherUid', 'meetingCode', 'word', 'question', 'responseType',
+          'options', 'correctAnswer', 'targetUids', 'targetStudents',
           'durationSeconds', 'startedAtMs', 'expiresAtMs', 'status', 'createdAt'
         ])
         && request.resource.data.sessionId is string
@@ -201,9 +214,25 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.meetingCode == request.resource.data.meetingCode
         && request.resource.data.teacherUid == request.auth.uid
         && validMeetingCode(request.resource.data.meetingCode)
-        && request.resource.data.word is string
-        && request.resource.data.word.size() > 0
-        && request.resource.data.word.size() <= 120
+        && (
+          (request.resource.data.question is string
+            && request.resource.data.question.size() > 0
+            && request.resource.data.question.size() <= 240
+            && request.resource.data.responseType in ['short-answer', 'multiple-choice']
+            && request.resource.data.correctAnswer is string
+            && request.resource.data.correctAnswer.size() <= 120
+            && (request.resource.data.correctAnswer == ''
+              || request.resource.data.responseType == 'short-answer'
+              || request.resource.data.correctAnswer in request.resource.data.options)
+            && ((request.resource.data.responseType == 'short-answer'
+                && request.resource.data.options is list
+                && request.resource.data.options.size() == 0)
+              || (request.resource.data.responseType == 'multiple-choice'
+                && validActivityOptions(request.resource.data.options))))
+          || (request.resource.data.word is string
+            && request.resource.data.word.size() > 0
+            && request.resource.data.word.size() <= 120)
+        )
         && request.resource.data.targetUids is list
         && request.resource.data.targetUids.size() > 0
         && request.resource.data.targetUids.size() <= 300
@@ -254,6 +283,9 @@ service cloud.firestore {
           && activity().data.status == 'active'
           && activity().data.expiresAtMs > request.time.toMillis()
           && request.auth.uid in activity().data.targetUids
+          && (!('responseType' in activity().data)
+            || activity().data.responseType != 'multiple-choice'
+            || request.resource.data.answer in activity().data.options)
           && activity().data.sessionId is string
           && get(/databases/$(database)/documents/sessions/$(activity().data.sessionId)).data.status == 'active';
 

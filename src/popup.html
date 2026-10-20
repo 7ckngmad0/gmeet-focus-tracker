@@ -73,12 +73,13 @@
             <span id="sessionState" class="session-pill">Waiting</span>
           </div>
           <section class="class-activity" id="class-activity" aria-labelledby="class-activity-title" hidden>
-            <div class="activity-heading"><strong id="class-activity-title">Quick class check</strong><span class="activity-countdown" id="activity-countdown"></span></div>
-            <p>Your professor asks you to type:</p>
+            <div class="activity-heading"><strong id="class-activity-title">Quick class question</strong><span class="activity-countdown" id="activity-countdown"></span></div>
+            <p id="activity-instruction">Your professor asks:</p>
             <div class="activity-word" id="activity-word"></div>
             <form id="activity-response-form">
-              <label for="activity-answer">Your answer</label>
-              <input id="activity-answer" type="text" maxlength="120" autocomplete="off" placeholder="Type the word here" />
+              <div class="activity-options" id="activity-options" role="radiogroup" aria-label="Answer choices" hidden></div>
+              <label id="activity-answer-label" for="activity-answer">Your answer</label>
+              <input id="activity-answer" type="text" maxlength="120" autocomplete="off" placeholder="Type your answer" />
               <button type="submit" class="btn btn-primary wide" id="activity-submit">Submit answer</button>
             </form>
             <p class="activity-feedback" id="activity-feedback" role="status" aria-live="polite"></p>
@@ -110,9 +111,9 @@
               <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg><span id="privacy-meet">Not connected to Meet</span></li>
               <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><span id="privacy-idle">Device not idle or locked</span></li>
               <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg><span>Number of open browser tabs</span></li>
-              <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10M7 12h10M7 16h6"/><path d="M5 3h14a2 2 0 0 1 2 2v14l-4-3H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/></svg><span>Answers you submit to quick checks</span></li>
+              <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10M7 12h10M7 16h6"/><path d="M5 3h14a2 2 0 0 1 2 2v14l-4-3H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/></svg><span>Answers you submit to class questions and polls</span></li>
             </ul>
-            <p class="privacy-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Quick-check answers are shared only when you submit. Your browsing stays private.</p>
+            <p class="privacy-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Your answer is shared with your professor only when you submit. Your browsing stays private.</p>
           </section>
           <p class="connection" id="connection"></p>
           <div class="popup-account">
