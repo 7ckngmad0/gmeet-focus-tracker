@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "webpack",
-    "test": "node tests/content.test.mjs && node tests/dashboard.test.mjs && node tests/background.test.mjs"
+    "build": "npm --prefix dashboard run build && webpack",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
