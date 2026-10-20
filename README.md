@@ -1,33 +1,53 @@
 # PUP iSEENTA Class Activity Tracker
 
-A Chrome extension and React dashboard for tracking student focus during an active Google Meet class. The extension records Meet presence, idle state, and an open-tab count after student consent. Professors can also launch a timed quick response check from the dashboard; students submit in the extension popup, and answers are matched without regard to capitalization. The extension does not collect tab titles, URLs, or favicons.
+iSEENTA is a Chrome-compatible extension and professor dashboard for a Google Meet class. With student consent, it records Meet presence, idle state, and the number of open browser tabs. It does not collect tab titles, URLs, or favicons. Professors can also run timed word checks; students submit answers in the extension popup, and capitalization does not matter.
 
-## Configure Firebase
+## Get it running
 
-Copy `src/firebase.example.js` to `src/firebase.js` and fill in the Firebase web app values. `src/firebase.js` is ignored by Git and is shared by the extension and dashboard. For Brave, Edge, or another Chromium browser, set `GOOGLE_WEB_CLIENT_ID` there as described in [SETUP-GUIDE.md](SETUP-GUIDE.md).
+The project owner configures Firebase and publishes the Firestore rules and indexes once. See the [setup guide](SETUP-GUIDE.md) for those steps and the student/professor walkthrough.
 
-Enable Google sign-in in Firebase Authentication. Publish the Firestore rules from `firestore.rules` and the composite indexes from `firestore.indexes.json`; these restrict session controls, event reads, and class-check responses to the appropriate professor and active Meet session.
+### For students and professors
 
-## Build and load the extension
+Students and professors do **not** need Node.js, npm, or the project source. [Download the latest iSEENTA extension ZIP](https://github.com/7ckngmad0/gmeet-focus-tracker/releases/latest/download/iSEENTA-extension.zip), then:
 
-Install the root dependencies and the dashboard dependencies, then build:
+1. Extract the ZIP. Keep the extracted folder in a location you won't move or delete.
+2. Open `chrome://extensions` in Chrome. For Brave or Edge, open `brave://extensions` or `edge://extensions`.
+3. Turn on **Developer mode**, click **Load unpacked**, and choose the extracted folder that directly contains `manifest.json`. Do not choose the ZIP file or the project folder.
+4. Complete any permission prompts. Click the iSEENTA icon, choose **I am a Student** or **I am a Professor**, and sign in with your Google account.
 
-```sh
-npm install
-npm --prefix dashboard install
+The professor account must be authorized by the project owner. Students should install the same release and use the Google account they use for class. The extension needs to be installed in the browser profile where Google Meet is open.
+
+This developer-mode ZIP installation does not update automatically. To update, get and extract the new ZIP, remove the old iSEENTA entry from `chrome://extensions`, then click **Load unpacked** and select the new extracted folder. For each code update, the maintainer should build and distribute a new ZIP. A Chrome Web Store release can provide a simpler install and automatic updates.
+
+### For the project maintainer
+
+The maintainer needs Node.js/npm and runs these commands once for each release:
+
+```powershell
+if (-not (Test-Path .\src\firebase.js)) { Copy-Item src\firebase.example.js src\firebase.js }
+npm ci
+npm --prefix dashboard ci
 npm run build
+Compress-Archive -Path .\dist\* -DestinationPath .\iSEENTA-extension.zip -Force
 ```
 
-In `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the generated `dist` folder. The build packages the React dashboard into the extension so the professor popup can open it for the current Meet room.
+Share `iSEENTA-extension.zip` privately with the class, or publish it to the Chrome Web Store. Do not include `src/firebase.js` or source files in the release ZIP.
 
-The dashboard can also run in a browser during UI work:
+## During class
 
-```sh
+- **Students:** Sign in using **I am a Student**, enable tracking consent, and join the active Google Meet call. Open the extension popup to send an away notice or respond to a professor's quick check.
+- **Professors:** Sign in using **I am a Professor** and use the dashboard to start a session for the class Meet. Quick checks are available while the session is active. Answers can differ in letter case or have extra spaces around them and still match.
+
+The professor dashboard reports **Not detected** after a student's presence heartbeat has stopped for 75 seconds. Focus time stops at that point.
+
+## Development
+
+Run the dashboard by itself while working on its UI:
+
+```powershell
 npm --prefix dashboard run dev
 ```
 
-Students must sign in through the extension popup, choose the student role, and enable tracking consent. Professors sign in through the professor role. The dashboard supports the existing Meet-session controls and reports a student as **Not detected** when presence heartbeats stop for 75 seconds; focus time stops at that point.
+For full feature use, load the built extension; the dashboard is packaged inside it.
 
-During a live session, professors can enter a word or short phrase in **Quick response check**, choose a response window, and start the check. Students who are in the session roster can submit once from the extension popup. The dashboard records correct answers, incorrect answers, and students who did not respond before the deadline; matching ignores capitalization and surrounding whitespace.
-
-Keep the professor email lists in `src/config.js`, `dashboard/src/App.tsx`, and `firestore.rules` aligned when adding or removing a professor. Firestore rules are the security boundary; the dashboard check only improves the sign-in experience.
+Keep the professor allowlists in `src/config.js`, `dashboard/src/App.tsx`, and `firestore.rules` aligned. Firestore rules—not the dashboard allowlist—enforce access.

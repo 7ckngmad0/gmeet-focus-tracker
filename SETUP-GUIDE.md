@@ -1,91 +1,130 @@
-# PUP iSEENTA: Setup Guide
+# iSEENTA Setup and Class Guide
 
-## 1. Get the code and add the Firebase keys
+This guide covers project-owner setup, installing the extension, then what students and professors do during class.
 
-```bash
-cp src/firebase.example.js src/firebase.js
-```
+## 1. One-time setup (project owner)
 
-**Right after checking out, fill in `src/firebase.js`.** Without it, the build fails with `Can't resolve './firebase'`.
-- Paste the `firebaseConfig` values from the Firebase console: Project settings → General → Your apps → Web app.
-- Or ask a teammate for their `src/firebase.js`. Share it privately: the repo is public, and git ignores this file so it never gets committed.
+### Configure Firebase
 
-Then build:
+1. In the Firebase Console, create or select the project and register a **Web app**.
+2. Copy the app's Firebase config values into `src/firebase.js`. If it does not exist yet, make it from the example:
 
-```bash
-npm ci
-npm --prefix dashboard install
-npm run build
-```
+   ```powershell
+   Copy-Item src\firebase.example.js src\firebase.js
+   ```
 
-## 2. Load the extension
+   `src/firebase.js` is ignored by Git; follow the project team's policy for sharing it. Firebase web config is not a password—the Firestore rules enforce data access—but keep local config out of commits.
+3. In Firebase Authentication, enable **Google** sign-in.
+4. In Firestore Database, create the database if needed. Publish `firestore.rules` from the Firebase Console's **Rules** tab.
+5. Deploy the indexes from the project root, or create them when Firestore supplies a link after a missing-index error:
 
-1. Open `chrome://extensions` (or `brave://extensions` / `edge://extensions`).
-2. Turn on **Developer mode** and click **Load unpacked**.
-3. Select the `dist` folder, not the project root or `src`.
-4. Check that the extension ID is `kkffkfcdgbgjklhejknjphjiaekopdhj`. The `key` in `manifest.json` fixes this ID, and Google sign-in only works with it.
+   ```powershell
+   firebase deploy --only firestore:indexes
+   ```
 
-If you used v1 before, click ↻ reload on the extension card and sign in again from the popup. v1 sign-ins don't carry over.
+   Use the Firebase CLI login and select the correct project first. Wait for indexes to finish building before testing quick checks.
 
-## 3. Use it
+The project uses an allowlist for professor accounts. When adding or removing a professor, update all three places and publish the rules:
 
-**Student**
-1. Open the popup and click **I am a Student**.
-2. Tick **Enable activity and focus tracking**, then click **Sign in with Google**.
-3. Join a Google Meet call. Tracking only starts once you're actually in the call, not in the lobby.
-
-**Professor**
-1. Open the popup and click **I am a Professor**, then sign in.
-2. Only the emails in `src/config.js` are accepted. Any other account is signed out and sent back to role selection.
-3. The dashboard opens in a new tab. If the active tab is a Meet room, its code is prefilled; otherwise enter the Meet code manually.
-4. If no room code was prefilled, set the Google Meet link in the banner, then click **Start**. Students' events are accepted only while an active session exists for that Meet.
-5. Use **Pause** to stop accepting new tracking events temporarily, **Start** to resume, and the stop control to finish the session. Session state and elapsed time are stored in Firestore.
-
-**Quick response check.** During an active session, enter a word or phrase in the dashboard's **Quick response check**, choose 30 seconds, 1, 2, or 5 minutes, and start it. Students in the current roster see it in the extension popup and can submit one answer. Letter case and surrounding spaces do not affect matching. When time expires, the dashboard shows correct, incorrect, and no-response students. Answers are included in the 30-day class-data cleanup policy.
-
-The dashboard is now part of the extension. `npx serve dashboard` no longer works.
-
-## 4. One-time project setup (owner only)
-
-**Firestore rules and indexes.** Copy `firestore.rules` into Firebase console → Firestore Database → Rules, then click Publish. Quick response checks also require the composite indexes in `firestore.indexes.json`; deploy them from the project root with `firebase deploy --only firestore:indexes` and wait until Firebase reports them ready. The extension and dashboard depend on the `sessions`, `events`, and `classActivities` rules. Event writes require the submitted email to match the authenticated, verified account email and to reference the matching Meet session. The rules must include the `HEARTBEAT` event type for stale-presence detection. If a student's events are rejected, have them sign in again with their Google account. If you add a professor, update both:
 - `PROFESSOR_EMAILS` in `src/config.js`
-- the dashboard allowlist in `dashboard/src/App.tsx`
-- the list in `firestore.rules`
+- the professor allowlist in `dashboard/src/App.tsx`
+- the email list in `firestore.rules`
 
-**Student away notices and professor reminders.** Publish the updated `firestore.rules` to enable the `afkRequests` and `professorAlerts` collections. Students can send a preset away reason from the extension popup during an active session. Professors see requests live in the dashboard and can acknowledge them. The dashboard can send a fixed reminder to students currently marked Away; Chrome's notification permission must be allowed for the system alert to appear. The 30-day cleanup function also removes these notice documents after it has been deployed.
+Students use a verified Google account; their email does not need to be on the professor allowlist.
 
-**Google account chooser in the dashboard / Brave / Edge sign-in.** The dashboard's explicit **Sign in** button uses a Google account chooser so it doesn't silently reuse Chrome's cached account. This web OAuth client is also used for Brave and Edge, which don't support Chrome's built-in Google sign-in:
-1. Go to Google Cloud console → APIs & Services → Credentials → **Create credentials → OAuth client ID**, and choose **Web application**.
-2. Add this authorized redirect URI: `https://kkffkfcdgbgjklhejknjphjiaekopdhj.chromiumapp.org/`
+### Build and package a release (project maintainer)
+
+The project maintainer does this when creating a release. Students and professors can skip this section; they do not need Node.js or npm.
+
+```powershell
+npm ci
+npm --prefix dashboard ci
+npm run build
+Compress-Archive -Path .\dist\* -DestinationPath .\iSEENTA-extension.zip -Force
+```
+
+Distribute `iSEENTA-extension.zip` to the class using a trusted channel, or publish the extension on the Chrome Web Store. A Web Store listing is recommended for a one-click install and automatic updates. Do not distribute `src/firebase.js` or source files; the built extension already includes the Firebase web app configuration.
+
+### Install the extension (students and professors)
+
+**From the Chrome Web Store:** open the extension's listing and click **Add to Chrome**. The browser installs updates automatically.
+
+**From the class ZIP:**
+
+1. Download and extract `iSEENTA-extension.zip` to a folder you can keep (for example, `Documents\iSEENTA`).
+2. In Chrome, open `chrome://extensions`; in Brave or Edge, open `brave://extensions` or `edge://extensions`.
+3. Turn on **Developer mode**, click **Load unpacked**, and choose the extracted folder containing `manifest.json` (not the ZIP itself).
+4. Keep that folder in place. The extension ID should be `kkffkfcdgbgjklhejknjphjiaekopdhj`; the manifest pins this ID for Google sign-in.
+
+ZIP installs do not update automatically. When the maintainer shares a new ZIP, extract the new files into the same folder, then click **Reload** on the extension card and refresh open Meet tabs. If updating by replacing the folder is inconvenient, remove the old unpacked extension and load the newly extracted folder.
+
+## 2. Student: join and participate
+
+1. Open the Google Meet link in the same browser profile where iSEENTA is installed. Join the call; being in the waiting room is not enough to start tracking.
+2. Click the iSEENTA extension icon, choose **I am a Student**, tick **Enable activity and focus tracking**, then sign in with the Google account you use for class.
+3. Leave the extension installed and stay signed in. The extension tracks presence while you are in the active class Meet.
+4. To tell the professor you are stepping away, open the extension popup and use **Send AFK notice**. Pick a reason and submit.
+5. To answer a quick check, open the extension popup while the response window is open. Type the requested word or phrase and submit once. Matching ignores capitalization and spaces at the beginning or end (for example, `Programming` and `ProGRAMming` match).
+
+The professor sees the answer you submit and whether it matches. If you do not submit before the timer ends, the dashboard records **No response** for that check. The extension does not read or send messages in Google Meet chat.
+
+## 3. Professor: start and run a class
+
+1. Open the class Google Meet in the same browser profile where iSEENTA is installed.
+2. Click the extension icon, choose **I am a Professor**, and sign in using an email on the professor allowlist. The dashboard opens in a tab.
+3. The dashboard uses the current Meet tab's room code when available. Otherwise, enter the class Meet link or code and choose **Set link**.
+4. Click **Start** to create the active class session. Students can only be recorded against an active session for that same Meet room.
+5. Wait for students to sign in, join the call, and appear in **Student activity**. Only students visible in the roster when a quick check starts are included in that check.
+6. To run a quick check, enter a word or short phrase in **Quick response check**, choose 30 seconds, 1 minute, 2 minutes, or 5 minutes, then click **Start quick check**. Students see the prompt in their extension popup. The dashboard updates counts for correct, incorrect, and no response.
+7. **Notify away** sends a fixed reminder to students currently marked Away. It is not a Meet chat message or quick check. **Pause** temporarily pauses session tracking; **Start** resumes it. Use the stop control to end the session.
+
+## 4. Optional setup
+
+### Account chooser in the dashboard, Brave, and Edge
+
+Chrome's normal extension sign-in does not require this. To use the dashboard's explicit Google account chooser, or to sign in from Brave/Edge:
+
+1. In Google Cloud Console → **APIs & Services** → **Credentials**, create an OAuth client ID of type **Web application**.
+2. Add this authorized redirect URI:
+
+   ```text
+   https://kkffkfcdgbgjklhejknjphjiaekopdhj.chromiumapp.org/
+   ```
+
 3. Put the client ID in `GOOGLE_WEB_CLIENT_ID` in `src/firebase.js`, then rebuild.
-4. In Firebase console → Authentication → Sign-in method → Google, add this client ID under "Safelist client IDs from external projects", if Firebase rejects the sign-in.
+4. If Firebase requests it, add the client ID to Firebase Authentication → Google provider → **Safelist client IDs from external projects**.
 
-The extension popup's normal Chrome sign-in works without this. To open the account chooser from the dashboard, configure this web client ID even in Chrome.
+### 30-day data cleanup (project owner)
 
-**30-day activity retention (project owner).** `functions/pruneExpiredActivity` runs daily at 2:30 AM Manila time. It deletes event records more than 30 days past their trusted Firestore `receivedAt` timestamp and deletes ended sessions, quick checks, and their responses more than 30 days old. Events and quick checks attached to active or paused sessions are kept until those sessions end. Firestore client rules continue to deny deletes; only this Admin SDK scheduled function performs cleanup.
+The optional scheduled function removes expired class data and quick-check responses. Deploy it after signing in to the Firebase CLI and selecting the correct project:
 
-Deploy the cleanup function from the project root after signing into Firebase CLI and selecting the correct project:
-
-```bash
+```powershell
 npm --prefix functions install
 firebase deploy --only functions:pruneExpiredActivity
 ```
 
-After pulling changes to the cleanup function, redeploy it so quick-check records are included. Scheduled Cloud Functions require the Firebase project to use the Blaze plan and Cloud Scheduler to be enabled. The scheduled job must be deployed before automatic deletion occurs. Review current Cloud Functions and Cloud Scheduler pricing before deployment.
+Scheduled Cloud Functions require the Blaze plan and Cloud Scheduler. Review Firebase pricing before enabling them. If the cleanup function changes, deploy it again.
 
-## 5. After pulling or changing code
+## 5. Updating the extension
 
-1. Run `npm run build`.
-2. Click ↻ reload on the extension card.
-3. Refresh any open Meet tab. Content scripts don't reload on their own. Students must reload the extension and refresh Meet to send presence heartbeats.
+After pulling code changes:
+
+```powershell
+npm ci
+npm --prefix dashboard ci
+npm run build
+```
+
+Then go to the extension management page, click **Reload** on iSEENTA, and refresh open Meet tabs. Students should reopen the extension popup and sign in again if their account or sync status is stale.
 
 ## 6. Troubleshooting
 
-| Problem | Fix |
+| What you see | What to check |
 |---|---|
-| Popup shows "Not syncing: signed out" | Sign out in the popup and sign in again. |
-| Popup shows "Not syncing: Firestore rejected the event" | Publish `firestore.rules` (section 4). |
-| Brave/Edge: "Google sign-in isn't set up for this browser" | Set `GOOGLE_WEB_CLIENT_ID` (section 4). |
-| Dashboard: "isn't recognized as a professor" | Sign out and use a whitelisted account. |
-| Dashboard: "This account isn't authorized" | That professor's email is missing from the published Firestore rules. |
-| No events at all | Go to `chrome://extensions` and click **service worker** on the card. Look for `[Meet Focus Tracker]` lines. |
+| Student is not appearing in the dashboard | Confirm they joined the call (not just the lobby), signed in as a student, enabled consent, and joined the same Meet room as the active professor session. |
+| Student events are rejected or not syncing | Publish the current `firestore.rules`. Have the student reopen the popup and sign in again with their verified Google account. |
+| Quick check does not appear or students cannot submit | Confirm the class session is active, the student is in its roster, Firestore rules are published, and composite indexes are ready. Reload the extension and refresh Meet. |
+| Dashboard says the professor is not authorized | Sign in with a whitelisted email, or update and publish all three professor allowlists. |
+| Notify away seems to do nothing | It only targets students currently marked Away. The reminder appears in the extension popup; system notifications also require browser notification permission. |
+| No activity at all | On `chrome://extensions`, open the iSEENTA **service worker** link and check the console for `[Meet Focus Tracker]` errors. |
+| Brave/Edge sign-in is unavailable | Configure `GOOGLE_WEB_CLIENT_ID` as described above. |
