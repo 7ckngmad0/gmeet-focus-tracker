@@ -1,10 +1,9 @@
-// Copy this file to src/firebase.js and fill in the values. src/firebase.js is gitignored.
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth/web-extension";
 
 // Firebase console → Project settings → General → Your apps → Web app → SDK setup and configuration
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "your-api-key-here",
   authDomain: "your-project-id.firebaseapp.com",
   projectId: "your-project-id",
@@ -18,6 +17,6 @@ const firebaseConfig = {
 // whose authorized redirect URI is https://<extension-id>.chromiumapp.org/
 export const GOOGLE_WEB_CLIENT_ID = "";
 
-const app = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
