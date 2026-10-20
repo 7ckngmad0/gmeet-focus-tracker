@@ -10,6 +10,8 @@ let professorAlertWatchKey = "";
 let professorAlertQueue = Promise.resolve();
 let studentSessionUnsubscribe = null;
 let studentSessionWatchKey = "";
+let classActivityUnsubscribe = null;
+let classActivityWatchKey = "";
 function processProfessorAlerts(alerts, activeSessionId) {
   professorAlertQueue = professorAlertQueue.then(async () => {
     const { seenProfessorAlertIds = [] } = await chrome.storage.local.get("seenProfessorAlertIds");
@@ -115,6 +117,61 @@ async function syncStudentSessionWatch() {
   }, error => console.error("[Meet Focus Tracker] Active class session sync failed:", error));
 }
 
+async function processStudentClassActivities(activities, activeSessionId, studentUid) {
+  const { seenClassActivityIds = [] } = await chrome.storage.local.get("seenClassActivityIds");
+  const seen = new Set(seenClassActivityIds);
+  for (const { id, data } of activities) {
+    if (seen.has(id)
+      || data.sessionId !== activeSessionId
+      || data.status !== "active"
+      || Number(data.expiresAtMs) <= Date.now()
+      || !data.targetUids?.includes(studentUid)) continue;
+    seen.add(id);
+    await chrome.storage.local.set({ seenClassActivityIds: [...seen].slice(-500) });
+    try {
+      await chrome.notifications.create(`iseenta-activity-${id}`, {
+        type: "basic",
+        iconUrl: "icon-128.png",
+        title: "Your professor started a quick check",
+        message: `Type "${String(data.word)}" in the iSeenta extension popup before time runs out.`,
+        priority: 2
+      });
+    } catch (error) {
+      console.warn("[Meet Focus Tracker] Could not show class activity notification:", error);
+    }
+  }
+}
+
+async function syncStudentClassActivityWatch() {
+  await auth.authStateReady();
+  const { profile, activeSessionId } = await chrome.storage.local.get(["profile", "activeSessionId"]);
+  const user = auth.currentUser;
+  const key = profile?.role === "student" && user?.uid === profile.uid && activeSessionId
+    ? `${profile.uid}:${activeSessionId}`
+    : "";
+  if (key === classActivityWatchKey) return;
+  classActivityUnsubscribe?.();
+  classActivityUnsubscribe = null;
+  classActivityWatchKey = key;
+  if (!key) return;
+
+  const activities = query(
+    collection(db, "classActivities"),
+    where("sessionId", "==", activeSessionId),
+    where("status", "==", "active"),
+    where("targetUids", "array-contains", profile.uid)
+  );
+  classActivityUnsubscribe = onSnapshot(activities, snapshot => {
+    void processStudentClassActivities(
+      snapshot.docChanges()
+        .filter(change => change.type === "added")
+        .map(change => ({ id: change.doc.id, data: change.doc.data() })),
+      activeSessionId,
+      profile.uid
+    ).catch(error => console.error("[Meet Focus Tracker] Could not process quick checks:", error));
+  }, error => console.error("[Meet Focus Tracker] Quick check sync failed:", error));
+}
+
 chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === "professor-alert-poll") {
     void pollProfessorAlerts().catch(error => console.error("[Meet Focus Tracker] Reminder check failed:", error));
@@ -126,6 +183,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local") {
     if (changes.profile || changes.activeSessionId) {
       void syncProfessorAlertWatch().catch(error => console.error("[Meet Focus Tracker] Could not start reminder sync:", error));
+      void syncStudentClassActivityWatch().catch(error => console.error("[Meet Focus Tracker] Could not start quick check sync:", error));
     }
     if (changes.profile || changes.activeMeeting) {
       void syncStudentSessionWatch().catch(error => console.error("[Meet Focus Tracker] Could not start active session sync:", error));
@@ -580,6 +638,7 @@ chrome.runtime.onStartup.addListener(() => {
   flushOutbox();
   void syncProfessorAlertWatch();
   void syncStudentSessionWatch();
+  void syncStudentClassActivityWatch();
 });
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create("professor-alert-poll", { periodInMinutes: 1 });
@@ -590,6 +649,7 @@ chrome.runtime.onInstalled.addListener(() => {
   flushOutbox();
   void syncProfessorAlertWatch();
   void syncStudentSessionWatch();
+  void syncStudentClassActivityWatch();
 });
 
 chrome.idle.setDetectionInterval(300);

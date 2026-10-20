@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { meetCodeFromUrl } from "./config";
 
@@ -36,6 +36,110 @@ let afkUnsubscribe = null;
 let pendingAfkRequest = false;
 let latestAfkRequest = null;
 let latestRenderRequest = 0;
+let activityWatchKey = "";
+let activityUnsubscribe = null;
+let activityResponseUnsubscribe = null;
+let activityCountdownTimer = null;
+let currentClassActivity = null;
+let currentActivityResponse = null;
+
+function setActivityFeedback(text, kind = "") {
+  const feedback = $("activity-feedback");
+  feedback.textContent = text;
+  feedback.className = `activity-feedback${kind ? ` ${kind}` : ""}`;
+}
+
+function renderClassActivity() {
+  const activity = currentClassActivity;
+  $("class-activity").hidden = !activity;
+  if (!activity) return;
+
+  const remainingMs = Math.max(0, Number(activity.expiresAtMs) - Date.now());
+  const expired = remainingMs <= 0;
+  $("activity-word").textContent = activity.word;
+  $("activity-countdown").textContent = expired ? "Time is up" : `${Math.ceil(remainingMs / 1000)}s left`;
+  $("activity-answer").disabled = expired || Boolean(currentActivityResponse);
+  $("activity-submit").disabled = expired || Boolean(currentActivityResponse);
+  if (currentActivityResponse) {
+    setActivityFeedback("Your answer was recorded.", "success");
+  } else if (expired) {
+    setActivityFeedback("The response window has closed.", "error");
+  }
+}
+
+function watchClassActivity(profile, sessionId) {
+  const key = profile?.role === "student" && profile.uid && sessionId
+    ? `${profile.uid}:${sessionId}`
+    : "";
+  if (key === activityWatchKey) return;
+
+  activityUnsubscribe?.();
+  activityResponseUnsubscribe?.();
+  activityUnsubscribe = null;
+  activityResponseUnsubscribe = null;
+  if (activityCountdownTimer !== null) clearInterval(activityCountdownTimer);
+  activityCountdownTimer = null;
+  activityWatchKey = key;
+  currentClassActivity = null;
+  currentActivityResponse = null;
+  $("activity-answer").value = "";
+  setActivityFeedback("");
+  renderClassActivity();
+  if (!key) return;
+
+  const activities = query(
+    collection(db, "classActivities"),
+    where("sessionId", "==", sessionId),
+    where("status", "==", "active"),
+    where("targetUids", "array-contains", profile.uid)
+  );
+  activityUnsubscribe = onSnapshot(activities, snapshot => {
+    if (activityWatchKey !== key) return;
+    const activity = snapshot.docs
+        .map(item => ({ id: item.id, ...item.data() }))
+        .sort((a, b) => Number(b.startedAtMs) - Number(a.startedAtMs))[0] ?? null;
+
+    if (activity?.id !== currentClassActivity?.id) {
+      activityResponseUnsubscribe?.();
+      activityResponseUnsubscribe = null;
+      currentActivityResponse = null;
+      $("activity-answer").value = "";
+      setActivityFeedback("");
+      currentClassActivity = activity;
+      if (activity) {
+        activityResponseUnsubscribe = onSnapshot(
+          doc(db, "classActivities", activity.id, "responses", profile.uid),
+          response => {
+            if (activityWatchKey !== key || currentClassActivity?.id !== activity.id) return;
+            currentActivityResponse = response.exists() ? response.data() : null;
+            renderClassActivity();
+          },
+          error => {
+            console.error("Could not load your class activity response", error);
+            setActivityFeedback("Could not load your response status. Reopen the popup and try again.", "error");
+          }
+        );
+      }
+    } else {
+      currentClassActivity = activity;
+    }
+    renderClassActivity();
+    if (activity && activityCountdownTimer === null) {
+      activityCountdownTimer = setInterval(renderClassActivity, 1000);
+    } else if (!activity && activityCountdownTimer !== null) {
+      clearInterval(activityCountdownTimer);
+      activityCountdownTimer = null;
+    }
+  }, error => {
+    if (activityWatchKey !== key) return;
+    console.error("Could not sync class activities", error);
+    currentClassActivity = null;
+    renderClassActivity();
+    setActivityFeedback(error?.code === "permission-denied"
+      ? "Firebase rules denied access. Publish the latest firestore.rules to enable class activities."
+      : "Could not load the class activity. Check your connection and try again.", "error");
+  });
+}
 
 function updateStudentBackButton(sessionId) {
   const hasAfkRequest = latestAfkRequest && latestAfkRequest.sessionId === sessionId && latestAfkRequest.status !== "returned";
@@ -240,11 +344,13 @@ async function render() {
   // Ignore older storage reads if another state update already triggered render.
   if (renderRequest !== latestRenderRequest) return;
   const { profile, authError } = state;
+  if (profile?.role !== "student") watchClassActivity(null, null);
 
   if (profile?.role === "student") {
     $("student-email").textContent = profile.email;
     updateTheme(state.currentMode, state.activeMeeting);
     updateConnection(state);
+    watchClassActivity(profile, state.activeSessionId);
     watchAfkRequests(profile, state.activeSessionId);
     $("afk-open").disabled = !state.activeMeeting || !state.activeSessionId || pendingAfkRequest;
     $("professor-alert-message").textContent = state.latestProfessorAlert && state.latestProfessorAlert.sessionId === state.activeSessionId
@@ -254,6 +360,7 @@ async function render() {
     updateStudentBackButton(state.activeSessionId);
     show("screen-student");
   } else if (profile?.role === "professor") {
+    watchClassActivity(null, null);
     watchAfkRequests(null, null);
     $("professor-email").textContent = profile.email;
     $("professor-avatar").textContent = (profile.name || profile.email || "P").split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(part => part[0].toUpperCase()).join("") || "P";
@@ -264,10 +371,12 @@ async function render() {
       : "Open this from a Google Meet tab to filter the dashboard to that room.";
     show("screen-professor");
   } else if (authError?.role === "student") {
+    watchClassActivity(null, null);
     watchAfkRequests(null, null);
     show("screen-student-signin");
     setMessage("student-message", authError.message);
   } else if ($("screen-student-signin").hidden) {
+    watchClassActivity(null, null);
     watchAfkRequests(null, null);
     // Don't kick a student off the consent screen while they're filling it in
     show("screen-role");
@@ -370,6 +479,49 @@ $("afk-open").addEventListener("click", () => {
   document.querySelector('.reason-chip[aria-pressed="true"]')?.focus();
 });
 $("afk-cancel").addEventListener("click", () => { $("afk-form").hidden = true; });
+$("activity-response-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const activity = currentClassActivity;
+  const answer = $("activity-answer").value.trim();
+  const button = $("activity-submit");
+  if (!activity || button.disabled) return;
+  if (!answer) {
+    setActivityFeedback("Type an answer before submitting.", "error");
+    return;
+  }
+  if (Number(activity.expiresAtMs) <= Date.now()) {
+    renderClassActivity();
+    return;
+  }
+
+  setBusy(button, true);
+  setActivityFeedback("Submitting your answer…");
+  try {
+    await auth.authStateReady();
+    const state = await chrome.storage.local.get(["profile", "activeSessionId"]);
+    const profile = state.profile;
+    if (profile?.role !== "student" || auth.currentUser?.uid !== profile.uid || state.activeSessionId !== activity.sessionId) {
+      throw new Error("Join the active class Meet and sign in as a student before submitting.");
+    }
+    await setDoc(doc(db, "classActivities", activity.id, "responses", profile.uid), {
+      uid: profile.uid,
+      email: profile.email,
+      name: profile.name || profile.email,
+      answer,
+      answeredAt: serverTimestamp()
+    });
+    currentActivityResponse = { answer };
+    setActivityFeedback("Your answer was recorded.", "success");
+  } catch (error) {
+    console.error("Could not submit class activity response", error);
+    setActivityFeedback(error?.code === "permission-denied"
+      ? "The response window may have closed, or your answer was already submitted."
+      : error instanceof Error ? error.message : "Could not submit your answer. Check your connection and try again.", "error");
+  } finally {
+    setBusy(button, false);
+    renderClassActivity();
+  }
+});
 document.querySelectorAll(".reason-chip").forEach(chip => chip.addEventListener("click", () => {
   document.querySelectorAll(".reason-chip").forEach(other => other.setAttribute("aria-pressed", String(other === chip)));
   $("afk-reason").value = chip.dataset.reason;

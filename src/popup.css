@@ -298,4 +298,18 @@ strong { font-weight: 600; }
 .privacy-list li:hover svg { color: var(--primary); }
 .privacy-list svg { transition: color .2s; }
 
+.class-activity { display: grid; gap: 10px; margin-top: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); }
+.activity-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.activity-heading strong { font-size: 13px; }
+.activity-countdown { color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; }
+.class-activity > p { color: var(--muted-foreground); font-size: 12px; }
+.activity-word { padding: 10px 12px; border-radius: 9px; background: var(--secondary); color: var(--foreground); font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+#activity-response-form { display: grid; gap: 8px; }
+#activity-response-form label { color: var(--muted-foreground); font-size: 11px; }
+#activity-answer { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); }
+.activity-feedback { color: var(--muted-foreground); font-size: 11px; }
+.activity-feedback:empty { display: none; }
+.activity-feedback.success { color: var(--active-text); }
+.activity-feedback.error { color: var(--danger); }
+
 @media (prefers-reduced-motion: reduce) { #eye-slot, .session-pill.live::before { animation: none !important; } }

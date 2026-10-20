@@ -41,11 +41,13 @@ If you used v1 before, click ↻ reload on the extension card and sign in again 
 4. If no room code was prefilled, set the Google Meet link in the banner, then click **Start**. Students' events are accepted only while an active session exists for that Meet.
 5. Use **Pause** to stop accepting new tracking events temporarily, **Start** to resume, and the stop control to finish the session. Session state and elapsed time are stored in Firestore.
 
+**Quick response check.** During an active session, enter a word or phrase in the dashboard's **Quick response check**, choose 30 seconds, 1, 2, or 5 minutes, and start it. Students in the current roster see it in the extension popup and can submit one answer. Letter case and surrounding spaces do not affect matching. When time expires, the dashboard shows correct, incorrect, and no-response students. Answers are included in the 30-day class-data cleanup policy.
+
 The dashboard is now part of the extension. `npx serve dashboard` no longer works.
 
 ## 4. One-time project setup (owner only)
 
-**Firestore rules.** Copy `firestore.rules` into Firebase console → Firestore Database → Rules, then click Publish. The extension and dashboard depend on both the `sessions` and `events` rules. Event writes require the submitted email to match the authenticated, verified account email and to reference the matching Meet session. The rules must include the `HEARTBEAT` event type for stale-presence detection. If a student's events are rejected, have them sign in again with their Google account. If you add a professor, update both:
+**Firestore rules and indexes.** Copy `firestore.rules` into Firebase console → Firestore Database → Rules, then click Publish. Quick response checks also require the composite indexes in `firestore.indexes.json`; deploy them from the project root with `firebase deploy --only firestore:indexes` and wait until Firebase reports them ready. The extension and dashboard depend on the `sessions`, `events`, and `classActivities` rules. Event writes require the submitted email to match the authenticated, verified account email and to reference the matching Meet session. The rules must include the `HEARTBEAT` event type for stale-presence detection. If a student's events are rejected, have them sign in again with their Google account. If you add a professor, update both:
 - `PROFESSOR_EMAILS` in `src/config.js`
 - the dashboard allowlist in `dashboard/src/App.tsx`
 - the list in `firestore.rules`
@@ -60,7 +62,7 @@ The dashboard is now part of the extension. `npx serve dashboard` no longer work
 
 The extension popup's normal Chrome sign-in works without this. To open the account chooser from the dashboard, configure this web client ID even in Chrome.
 
-**30-day activity retention (project owner).** `functions/pruneExpiredActivity` runs daily at 2:30 AM Manila time. It deletes event records more than 30 days past their trusted Firestore `receivedAt` timestamp and deletes ended sessions more than 30 days past `endedAt`. Events attached to active or paused sessions are kept until those sessions end. Firestore client rules continue to deny deletes; only this Admin SDK scheduled function performs cleanup.
+**30-day activity retention (project owner).** `functions/pruneExpiredActivity` runs daily at 2:30 AM Manila time. It deletes event records more than 30 days past their trusted Firestore `receivedAt` timestamp and deletes ended sessions, quick checks, and their responses more than 30 days old. Events and quick checks attached to active or paused sessions are kept until those sessions end. Firestore client rules continue to deny deletes; only this Admin SDK scheduled function performs cleanup.
 
 Deploy the cleanup function from the project root after signing into Firebase CLI and selecting the correct project:
 
@@ -69,7 +71,7 @@ npm --prefix functions install
 firebase deploy --only functions:pruneExpiredActivity
 ```
 
-Scheduled Cloud Functions require the Firebase project to use the Blaze plan and Cloud Scheduler to be enabled. The scheduled job must be deployed before automatic deletion occurs. Review current Cloud Functions and Cloud Scheduler pricing before deployment.
+After pulling changes to the cleanup function, redeploy it so quick-check records are included. Scheduled Cloud Functions require the Firebase project to use the Blaze plan and Cloud Scheduler to be enabled. The scheduled job must be deployed before automatic deletion occurs. Review current Cloud Functions and Cloud Scheduler pricing before deployment.
 
 ## 5. After pulling or changing code
 

@@ -15,6 +15,8 @@ type SessionDocument = { status?: string; startedAtMs?: number; elapsedMs?: numb
 type Status = "Active" | "Idle" | "Away" | "Not detected" | "Left";
 type Student = { name: string; email: string; uid: string; status: Status; focusMs: number; tabCount: number | null; lastEvent: string; lastTime: string };
 type AfkNotice = { id: string; sessionId: string; teacherUid: string; studentUid: string; studentEmail: string; studentName: string; reason: "Short break" | "Urgent matter" | "Other"; status: "pending" | "acknowledged" | "returned"; createdAt?: { seconds?: number; nanoseconds?: number; toMillis?: () => number; toDate?: () => Date } | null; returnedAt?: { seconds?: number; nanoseconds?: number; toMillis?: () => number; toDate?: () => Date } | null };
+type ClassActivity = { id: string; sessionId: string; teacherUid: string; word: string; targetUids: string[]; targetStudents: Array<{ uid: string; name: string; email: string }>; durationSeconds: number; startedAtMs: number; expiresAtMs: number; status: "active" | "closed" };
+type ActivityResponse = { uid: string; email: string; name: string; answer: string };
 type StudentActivityStats = { switches: number; meetingMs: number; focusedMs: number; awayMs: number; idleMs: number; focusPercent: number; counts: Map<EventType, number> };
 type SessionRecap = { session: ClassSession; students: Student[]; events: TrackerEvent[]; elapsedMs: number; endedAtMs: number };
 type DashboardNotification = { id: string; kind: "returned" | "reminder"; message: string; name?: string; email?: string; time: number };
@@ -75,6 +77,7 @@ const parseMeetingCode = (value: string) => {
   }
   return meetingCodePattern.test(trimmed) ? trimmed.toLowerCase() : "";
 };
+const normalizeActivityAnswer = (value: string) => value.normalize("NFKC").trim().toLowerCase();
 const labelEvent = (type: EventType) => ({ JOINED: "Joined the Google Meet", RETURNED: "Returned to Google Meet", AWAY: "Meet tab hidden", LEFT: "Left the meeting", IDLE: "No device input", LOCKED: "Screen locked", ACTIVE: "Active again", TABS_UPDATED: "Browser tab count updated", HEARTBEAT: "Presence check" })[type] ?? type;
 const formatClock = (seconds: number) => [Math.floor(seconds / 3600), Math.floor((seconds % 3600) / 60), seconds % 60].map(n => String(n).padStart(2, "0")).join(":");
 const formatDuration = (milliseconds: number) => {
@@ -277,6 +280,12 @@ export default function App() {
   const notificationRemovalTimeoutsRef = useRef(new Map<string, number>());
   const [user, setUser] = useState(() => mockStudentCount ? ({ uid: "local-preview-professor", email: "preview@localhost" } as NonNullable<typeof auth.currentUser>) : auth.currentUser);
   const [events, setEvents] = useState<TrackerEvent[]>([]);
+  const [classActivities, setClassActivities] = useState<ClassActivity[]>([]);
+  const [activityResponses, setActivityResponses] = useState<Record<string, ActivityResponse[]>>({});
+  const [activityWord, setActivityWord] = useState("");
+  const [activityDurationSeconds, setActivityDurationSeconds] = useState(60);
+  const [creatingActivity, setCreatingActivity] = useState(false);
+  const [activityError, setActivityError] = useState("");
   const [dashboardNotifications, setDashboardNotifications] = useState<DashboardNotification[]>([]);
   const [exitingDashboardNotifications, setExitingDashboardNotifications] = useState<string[]>([]);
   const [afkRequests, setAfkRequests] = useState<AfkNotice[]>([]);
@@ -499,6 +508,52 @@ export default function App() {
     });
   }, [user, activeSession?.id]);
   useEffect(() => {
+    const activitySession = activeSession ?? sessionRecap?.session ?? null;
+    if (mockStudentCount || !user || !activitySession || activitySession.teacherUid !== user.uid) {
+      setClassActivities([]);
+      setActivityResponses({});
+      return;
+    }
+    const sessionActivities = query(
+      collection(db, "classActivities"),
+      where("sessionId", "==", activitySession.id),
+      where("teacherUid", "==", user.uid)
+    );
+    return onSnapshot(sessionActivities, snapshot => {
+      const nextActivities = snapshot.docs
+        .map(item => ({ ...item.data(), id: item.id } as ClassActivity))
+        .sort((a, b) => b.startedAtMs - a.startedAtMs);
+      setClassActivities(nextActivities);
+    }, error => {
+      console.error("Could not load class activities", error);
+      setLoadError(error.code === "permission-denied"
+        ? "Firestore denied access to class activities. Publish the latest firestore.rules to enable quick class checks."
+        : "Could not load class activities. Check your connection and try again.");
+    });
+  }, [user?.uid, activeSession?.id, activeSession?.teacherUid, sessionRecap?.session.id, sessionRecap?.session.teacherUid, mockStudentCount]);
+  useEffect(() => {
+    if (!classActivities.length) {
+      setActivityResponses({});
+      return;
+    }
+    const unsubscribers = classActivities.map(activity => onSnapshot(
+      collection(db, "classActivities", activity.id, "responses"),
+      snapshot => {
+        setActivityResponses(current => ({
+          ...current,
+          [activity.id]: snapshot.docs.map(item => item.data() as ActivityResponse)
+        }));
+      },
+      error => {
+        console.error("Could not load class activity responses", error);
+        setActivityError(error.code === "permission-denied"
+          ? "Firestore denied access to student responses. Publish the latest firestore.rules."
+          : "Could not load student responses. Check your connection and try again.");
+      }
+    ));
+    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
+  }, [classActivities]);
+  useEffect(() => {
     if (mockStudentCount || !user || !activeSession) { afkRequestsRef.current = []; setAfkRequests([]); return; }
     const noticesQuery = query(collection(db, "afkRequests"), where("teacherUid", "==", user.uid));
     let initialSnapshot = true;
@@ -538,6 +593,54 @@ export default function App() {
 
   const students = useMemo(() => mockStudentCount ? createMockStudents(now) : toStudents(events, activeSession?.status === "paused" ? (activeSession.pausedAtMs || now) : now), [events, now, activeSession?.status, activeSession?.pausedAtMs]);
   const awayStudents = students.filter(student => student.status === "Away" && student.uid);
+  const openClassActivity = classActivities.find(activity => activity.status === "active" && activity.expiresAtMs > now);
+  const startClassActivity = async () => {
+    if (!user || !activeSession || activeSession.status !== "active" || creatingActivity || mockStudentCount) return;
+    const word = activityWord.trim();
+    const targetStudents = [...new Map(students
+      .filter(student => student.uid)
+      .map(student => [student.uid, { uid: student.uid, name: student.name, email: student.email }] as const)).values()];
+    const targetUids = targetStudents.map(student => student.uid);
+    setActivityError("");
+    if (!word || word.length > 120) {
+      setActivityError("Enter a word or short phrase of up to 120 characters.");
+      return;
+    }
+    if (!targetUids.length) {
+      setActivityError("Wait for students to join and appear in the activity list before starting a check.");
+      return;
+    }
+    if (targetUids.length > 300) {
+      setActivityError("Quick checks support up to 300 students in one class.");
+      return;
+    }
+
+    setCreatingActivity(true);
+    try {
+      const startedAtMs = Date.now();
+      await addDoc(collection(db, "classActivities"), {
+        sessionId: activeSession.id,
+        teacherUid: user.uid,
+        meetingCode: activeSession.meetingCode,
+        word,
+        targetUids,
+        targetStudents,
+        durationSeconds: activityDurationSeconds,
+        startedAtMs,
+        expiresAtMs: startedAtMs + activityDurationSeconds * 1000,
+        status: "active",
+        createdAt: serverTimestamp()
+      });
+      setActivityWord("");
+    } catch (error) {
+      console.error("Could not start class activity", error);
+      setActivityError(error instanceof Error
+        ? `Could not start the quick check: ${error.message}`
+        : "Could not start the quick check. Check Firestore rules and try again.");
+    } finally {
+      setCreatingActivity(false);
+    }
+  };
   const visible = useMemo(() => students.filter(s => (!awayOnly || s.status === "Away") && `${s.name} ${s.email}`.toLowerCase().includes(search.trim().toLowerCase())), [students, awayOnly, search]);
   const pageCount = Math.ceil(visible.length / studentsPerPage);
   const currentStudentPage = Math.min(studentPage, Math.max(0, pageCount - 1));
@@ -921,6 +1024,58 @@ export default function App() {
           </div>
           {meetingLinkError && <p className="small meeting-error" role="alert">{meetingLinkError}</p>}
         </div>
+      </section>
+
+      <section className="panel class-activity-panel" aria-labelledby="class-activity-heading">
+        <div className="class-activity-header">
+          <div><h2 id="class-activity-heading"><Activity size={18} />Quick response check</h2><p>Ask students to type a word in the extension popup. Answers are matched without regard to capitalization.</p></div>
+          <span className="class-activity-roster"><Users size={14} />{students.length} students</span>
+        </div>
+        <div className="class-activity-launch">
+          <label>Word or phrase
+            <input value={activityWord} onChange={event => setActivityWord(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void startClassActivity(); }} maxLength={120} placeholder="e.g. Programming" disabled={Boolean(mockStudentCount) || !activeSession || activeSession.status !== "active" || !ownsActiveSession || Boolean(openClassActivity) || creatingActivity} />
+          </label>
+          <label>Response time
+            <select value={activityDurationSeconds} onChange={event => setActivityDurationSeconds(Number(event.target.value))} disabled={Boolean(mockStudentCount) || !activeSession || activeSession.status !== "active" || !ownsActiveSession || Boolean(openClassActivity) || creatingActivity}>
+              <option value={30}>30 seconds</option>
+              <option value={60}>1 minute</option>
+              <option value={120}>2 minutes</option>
+              <option value={300}>5 minutes</option>
+            </select>
+          </label>
+          <button type="button" className="btn btn-primary" onClick={() => void startClassActivity()} disabled={Boolean(mockStudentCount) || !user || !activeSession || activeSession.status !== "active" || !ownsActiveSession || Boolean(openClassActivity) || creatingActivity}>
+            {creatingActivity ? "Starting…" : openClassActivity ? "Check in progress" : "Start quick check"}
+          </button>
+        </div>
+        {activityError && <p className="class-activity-error" role="alert">{activityError}</p>}
+        {classActivities.map(activity => {
+          const responses = activityResponses[activity.id] ?? [];
+          const responseByUid = new Map(responses.map(response => [response.uid, response]));
+          const studentByUid = new Map((activity.targetStudents ?? []).map(student => [student.uid, student] as const));
+          const targetUids = activity.targetUids ?? [];
+          const missingCount = targetUids.filter(uid => !responseByUid.has(uid)).length;
+          const incorrectCount = targetUids.filter(uid => {
+            const response = responseByUid.get(uid);
+            return response && normalizeActivityAnswer(response.answer) !== normalizeActivityAnswer(activity.word);
+          }).length;
+          const correctCount = Math.max(0, targetUids.length - missingCount - incorrectCount);
+          const remainingSeconds = Math.max(0, Math.ceil((activity.expiresAtMs - now) / 1000));
+          return <article className="class-activity-result" key={activity.id}>
+            <div className="class-activity-result-heading"><div><strong>Type: {activity.word}</strong><span>{targetUids.length} students · {remainingSeconds ? `${remainingSeconds}s left` : "Response window closed"}</span></div><span className="class-activity-total">{responses.length}/{targetUids.length} responded</span></div>
+            <div className="class-activity-counts"><span className="answer-correct"><Check size={14} />{correctCount} correct</span><span className="answer-incorrect"><X size={14} />{incorrectCount} incorrect</span><span className="answer-missing"><Clock3 size={14} />{missingCount} no response</span></div>
+            <ul className="class-activity-responses">{targetUids.map(uid => {
+              const response = responseByUid.get(uid);
+              const student = studentByUid.get(uid);
+              const correct = response && normalizeActivityAnswer(response.answer) === normalizeActivityAnswer(activity.word);
+              const status = !response ? "missing" : correct ? "correct" : "incorrect";
+              return <li className={`class-activity-response ${status}`} key={uid}>
+                <span><strong>{response?.name || student?.name || response?.email || student?.email || uid}</strong><small>{response?.email || student?.email || uid}</small></span>
+                <span className="activity-response-answer">{response ? response.answer : "No response"}</span>
+                <span className="activity-response-status">{status === "correct" ? "Correct" : status === "incorrect" ? "Incorrect" : "No response"}</span>
+              </li>;
+            })}</ul>
+          </article>;
+        })}
       </section>
 
       <section className="pulse-section" aria-label="Class pulse">

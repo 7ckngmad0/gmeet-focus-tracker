@@ -187,5 +187,82 @@ service cloud.firestore {
 
       allow update, delete: if false;
     }
+
+    match /classActivities/{activityId} {
+      allow create: if isProfessor()
+        && request.resource.data.keys().hasOnly([
+          'sessionId', 'teacherUid', 'meetingCode', 'word', 'targetUids', 'targetStudents',
+          'durationSeconds', 'startedAtMs', 'expiresAtMs', 'status', 'createdAt'
+        ])
+        && request.resource.data.sessionId is string
+        && exists(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId))
+        && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.status == 'active'
+        && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.teacherUid == request.auth.uid
+        && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.meetingCode == request.resource.data.meetingCode
+        && request.resource.data.teacherUid == request.auth.uid
+        && validMeetingCode(request.resource.data.meetingCode)
+        && request.resource.data.word is string
+        && request.resource.data.word.size() > 0
+        && request.resource.data.word.size() <= 120
+        && request.resource.data.targetUids is list
+        && request.resource.data.targetUids.size() > 0
+        && request.resource.data.targetUids.size() <= 300
+        && request.resource.data.targetStudents is list
+        && request.resource.data.targetStudents.size() == request.resource.data.targetUids.size()
+        && request.resource.data.durationSeconds in [30, 60, 120, 300]
+        && request.resource.data.startedAtMs is int
+        && request.resource.data.expiresAtMs is int
+        && request.resource.data.expiresAtMs > request.time.toMillis()
+        && request.resource.data.expiresAtMs <= request.time.toMillis() + 310000
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time;
+
+      allow read: if (isProfessor() && resource.data.teacherUid == request.auth.uid)
+        || (request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.uid in resource.data.targetUids
+          && exists(/databases/$(database)/documents/sessions/$(resource.data.sessionId))
+          && get(/databases/$(database)/documents/sessions/$(resource.data.sessionId)).data.status in ['active', 'paused']);
+
+      allow update: if isProfessor()
+        && resource.data.teacherUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'closed'
+        && resource.data.status == 'active';
+
+      allow delete: if false;
+
+      match /responses/{studentUid} {
+        function activity() {
+          return get(/databases/$(database)/documents/classActivities/$(activityId));
+        }
+
+        allow create: if request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.uid == studentUid
+          && request.resource.data.keys().hasOnly([
+            'uid', 'email', 'name', 'answer', 'answeredAt'
+          ])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.email.lower() == request.auth.token.email.lower()
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 120
+          && request.resource.data.answer is string
+          && request.resource.data.answer.size() > 0
+          && request.resource.data.answer.size() <= 120
+          && request.resource.data.answeredAt == request.time
+          && activity().data.status == 'active'
+          && activity().data.expiresAtMs > request.time.toMillis()
+          && request.auth.uid in activity().data.targetUids
+          && activity().data.sessionId is string
+          && get(/databases/$(database)/documents/sessions/$(activity().data.sessionId)).data.status == 'active';
+
+        allow read: if (isProfessor()
+            && activity().data.teacherUid == request.auth.uid)
+          || (request.auth != null && request.auth.uid == studentUid);
+
+        allow update, delete: if false;
+      }
+    }
   }
 }

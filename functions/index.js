@@ -11,11 +11,28 @@ const MAX_DELETES_PER_COLLECTION = 4000;
 const MAX_SCANNED_PER_COLLECTION = 20000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-async function deleteExpiredDocuments(collectionName, timestampField, cutoff, keepDocument) {
+async function deleteSubcollectionDocuments(documentRef, collectionName, maxDeletes) {
+  let deleted = 0;
+  while (deleted < maxDeletes) {
+    const limit = Math.min(BATCH_SIZE, maxDeletes - deleted);
+    const snapshot = await documentRef.collection(collectionName).limit(limit).get();
+    if (snapshot.empty) return { deleted, complete: true };
+    const batch = getFirestore().batch();
+    snapshot.docs.forEach(document => batch.delete(document.ref));
+    await batch.commit();
+    deleted += snapshot.size;
+    if (snapshot.size < limit) return { deleted, complete: true };
+  }
+  const remaining = await documentRef.collection(collectionName).limit(1).get();
+  return { deleted, complete: remaining.empty };
+}
+
+async function deleteExpiredDocuments(collectionName, timestampField, cutoff, keepDocument, beforeDelete) {
   const db = getFirestore();
   let deleted = 0;
   let scanned = 0;
   let cursor = null;
+  let reachedCleanupLimit = false;
 
   while (deleted < MAX_DELETES_PER_COLLECTION && scanned < MAX_SCANNED_PER_COLLECTION) {
     const limit = Math.min(BATCH_SIZE, MAX_SCANNED_PER_COLLECTION - scanned);
@@ -31,17 +48,24 @@ async function deleteExpiredDocuments(collectionName, timestampField, cutoff, ke
     scanned += snapshot.size;
     const batch = db.batch();
     let batchDeletes = 0;
+    let stop = false;
     for (const document of snapshot.docs) {
       if (keepDocument && !keepDocument(document.data())) continue;
+      if (beforeDelete && !(await beforeDelete(document.ref))) {
+        reachedCleanupLimit = true;
+        stop = true;
+        break;
+      }
       batch.delete(document.ref);
       batchDeletes += 1;
     }
     if (batchDeletes) await batch.commit();
     deleted += batchDeletes;
+    if (stop) break;
     if (snapshot.size < limit) break;
   }
 
-  return { deleted, scanned, hitLimit: deleted >= MAX_DELETES_PER_COLLECTION || scanned >= MAX_SCANNED_PER_COLLECTION };
+  return { deleted, scanned, hitLimit: reachedCleanupLimit || deleted >= MAX_DELETES_PER_COLLECTION || scanned >= MAX_SCANNED_PER_COLLECTION };
 }
 
 export const pruneExpiredActivity = onSchedule({
@@ -75,6 +99,21 @@ export const pruneExpiredActivity = onSchedule({
   );
   const afkResult = await deleteExpiredDocuments("afkRequests", "createdAt", cutoff);
   const alertResult = await deleteExpiredDocuments("professorAlerts", "createdAt", cutoff);
+  let deletedActivityResponses = 0;
+  let activityResponseLimitReached = false;
+  const activityResult = await deleteExpiredDocuments(
+    "classActivities",
+    "createdAt",
+    cutoff,
+    data => openSessionIds.has(data.sessionId),
+    async document => {
+      const remainingDeletes = MAX_DELETES_PER_COLLECTION - deletedActivityResponses;
+      const result = await deleteSubcollectionDocuments(document, "responses", remainingDeletes);
+      deletedActivityResponses += result.deleted;
+      if (!result.complete) activityResponseLimitReached = true;
+      return result.complete;
+    },
+  );
 
   logger.info("Expired class data pruned", {
     retentionDays: RETENTION_DAYS,
@@ -84,7 +123,10 @@ export const pruneExpiredActivity = onSchedule({
     scannedSessions: sessionResult.scanned,
     deletedAfkRequests: afkResult.deleted,
     deletedProfessorAlerts: alertResult.deleted,
+    deletedClassActivities: activityResult.deleted,
+    scannedClassActivities: activityResult.scanned,
+    deletedClassActivityResponses: deletedActivityResponses,
     cutoff: cutoff.toDate().toISOString(),
-    hitDeletionLimit: eventResult.hitLimit || sessionResult.hitLimit || afkResult.hitLimit || alertResult.hitLimit,
+    hitDeletionLimit: eventResult.hitLimit || sessionResult.hitLimit || afkResult.hitLimit || alertResult.hitLimit || activityResult.hitLimit || activityResponseLimitReached,
   });
 });
