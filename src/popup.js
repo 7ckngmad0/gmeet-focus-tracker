@@ -1,4 +1,5 @@
 import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth/web-extension";
 import { auth, db } from "./firebase";
 import { meetCodeFromUrl } from "./config";
 
@@ -33,6 +34,7 @@ $("theme-toggle")?.addEventListener("click", () => {
 const screens = ["screen-role", "screen-student-signin", "screen-student", "screen-professor"];
 let afkWatchKey = "";
 let afkUnsubscribe = null;
+let afkAuthUnsubscribe = null;
 let pendingAfkRequest = false;
 let latestAfkRequest = null;
 let latestRenderRequest = 0;
@@ -223,7 +225,9 @@ function watchAfkRequests(profile, sessionId) {
   const key = profile?.role === "student" && profile.uid && sessionId ? `${profile.uid}:${sessionId}` : "";
   if (key === afkWatchKey) return;
   afkUnsubscribe?.();
+  afkAuthUnsubscribe?.();
   afkUnsubscribe = null;
+  afkAuthUnsubscribe = null;
   afkWatchKey = key;
   pendingAfkRequest = false;
   latestAfkRequest = null;
@@ -232,34 +236,53 @@ function watchAfkRequests(profile, sessionId) {
     updateStudentBackButton(null);
     return;
   }
-  const requests = query(collection(db, "afkRequests"), where("studentUid", "==", profile.uid));
-  afkUnsubscribe = onSnapshot(requests, snapshot => {
+  const startWatching = () => {
+    if (afkWatchKey !== key || auth.currentUser?.uid !== profile.uid) return false;
+    afkAuthUnsubscribe?.();
+    afkAuthUnsubscribe = null;
+    const requests = query(collection(db, "afkRequests"), where("studentUid", "==", profile.uid));
+    afkUnsubscribe = onSnapshot(requests, snapshot => {
+      if (afkWatchKey !== key) return;
+      const latest = snapshot.docs
+        .map(item => ({ id: item.id, ...item.data() }))
+        .filter(item => item.sessionId === sessionId)
+        .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))[0];
+      latestAfkRequest = latest ? { id: latest.id, sessionId: latest.sessionId, status: latest.status } : null;
+      pendingAfkRequest = latest?.status === "pending";
+      void updateAfkButton(key, sessionId);
+      if (latest?.status === "returned") {
+        setAfkFeedback("");
+      } else if (latest) {
+        const sentAt = latest.createdAt?.toDate?.().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) || "just now";
+        setAfkFeedback(pendingAfkRequest
+          ? `Notice sent at ${sentAt}. Your professor has been notified.`
+          : `Your professor acknowledged your notice from ${sentAt}.`, "success");
+      } else {
+        setAfkFeedback("");
+      }
+      updateStudentBackButton(sessionId);
+    }, error => {
+      if (afkWatchKey !== key) return;
+      console.error("Could not sync AFK notices", error);
+      $("afk-open").disabled = true;
+      setAfkFeedback(error?.code === "permission-denied"
+        ? "Firebase rules denied access. Publish the latest firestore.rules to enable away notices."
+        : "Could not load your notice status. Check your connection and try again.", "error");
+    });
+    return true;
+  };
+  void auth.authStateReady().then(() => {
+    if (afkWatchKey !== key || startWatching()) return;
+    // The background can publish the student profile before Firebase auth has
+    // finished restoring in this popup. Wait for the matching user before
+    // querying Firestore, avoiding a transient unauthenticated rules warning.
+    afkAuthUnsubscribe = onAuthStateChanged(auth, () => {
+      if (afkWatchKey === key) startWatching();
+    });
+  }).catch(error => {
     if (afkWatchKey !== key) return;
-    const latest = snapshot.docs
-      .map(item => ({ id: item.id, ...item.data() }))
-      .filter(item => item.sessionId === sessionId)
-      .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))[0];
-    latestAfkRequest = latest ? { id: latest.id, sessionId: latest.sessionId, status: latest.status } : null;
-    pendingAfkRequest = latest?.status === "pending";
-    void updateAfkButton(key, sessionId);
-    if (latest?.status === "returned") {
-      setAfkFeedback("");
-    } else if (latest) {
-      const sentAt = latest.createdAt?.toDate?.().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) || "just now";
-      setAfkFeedback(pendingAfkRequest
-        ? `Notice sent at ${sentAt}. Your professor has been notified.`
-        : `Your professor acknowledged your notice from ${sentAt}.`, "success");
-    } else {
-      setAfkFeedback("");
-    }
-    updateStudentBackButton(sessionId);
-  }, error => {
-    if (afkWatchKey !== key) return;
-    console.error("Could not sync AFK notices", error);
-    $("afk-open").disabled = true;
-    setAfkFeedback(error?.code === "permission-denied"
-      ? "Firebase rules denied access. Publish the latest firestore.rules to enable away notices."
-      : "Could not load your notice status. Check your connection and try again.", "error");
+    console.error("Could not restore Firebase auth for AFK notices", error);
+    setAfkFeedback("Could not load your notice status. Reopen the extension and try again.", "error");
   });
 }
 
