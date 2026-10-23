@@ -17,7 +17,7 @@ type Status = "Active" | "Idle" | "Away" | "Not detected" | "Left";
 type Student = { name: string; email: string; uid: string; status: Status; focusMs: number; tabCount: number | null; lastEvent: string; lastTime: string };
 type AfkNotice = { id: string; sessionId: string; teacherUid: string; studentUid: string; studentEmail: string; studentName: string; reason: "Short break" | "Urgent matter" | "Other"; status: "pending" | "acknowledged" | "returned"; createdAt?: { seconds?: number; nanoseconds?: number; toMillis?: () => number; toDate?: () => Date } | null; returnedAt?: { seconds?: number; nanoseconds?: number; toMillis?: () => number; toDate?: () => Date } | null };
 type ClassActivity = { id: string; sessionId: string; teacherUid: string; question?: string; responseType?: "short-answer" | "multiple-choice"; options?: string[]; correctAnswer?: string; word?: string; targetUids: string[]; targetStudents: Array<{ uid: string; name: string; email: string }>; durationSeconds: number; startedAtMs: number; expiresAtMs: number; status: "active" | "closed" };
-type ActivityResponse = { uid: string; email: string; name: string; answer: string };
+type ActivityResponse = { uid: string; email: string; name: string; answer: string; answeredAt?: { toDate: () => Date } };
 type StudentActivityStats = { switches: number; meetingMs: number; focusedMs: number; awayMs: number; idleMs: number; focusPercent: number; counts: Map<EventType, number> };
 type SessionRecap = { session: ClassSession; students: Student[]; events: TrackerEvent[]; elapsedMs: number; endedAtMs: number };
 type DashboardNotification = { id: string; kind: "returned" | "reminder"; message: string; name?: string; email?: string; time: number };
@@ -134,13 +134,6 @@ function summarizeStudentActivity(events: TrackerEvent[], asOf: number): Student
   return { switches, meetingMs, focusedMs, awayMs, idleMs, focusPercent: meetingMs ? Math.round(focusedMs / meetingMs * 100) : 0, counts };
 }
 
-function csvCell(value: string | number | null | undefined) {
-  let text = value == null ? "" : String(value);
-  // Names and answers come from students: stop spreadsheets from reading them as formulas.
-  if (typeof value === "string" && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
 const normalizeAnswer = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
 const activityExpected = (activity: ClassActivity) => (activity.question ? activity.correctAnswer ?? "" : activity.word ?? "").trim();
 const activityLabel = (activity: ClassActivity) => activity.question?.trim() || `Type: ${activity.word ?? ""}`;
@@ -154,8 +147,11 @@ const activityVerdict = (activity: ClassActivity, response: ActivityResponse | u
   return normalizeAnswer(response.answer) === normalizeAnswer(expected) ? "Correct" : "Incorrect";
 };
 
-// One-page report for the professor: session header, one row per student, one row per question.
-function downloadSessionCsv(recap: SessionRecap, activities: ClassActivity[] = [], responsesByActivity: Record<string, ActivityResponse[]> = {}, note = "") {
+// Build an Excel workbook with meeting, activity, and response details on separate sheets.
+async function downloadSessionWorkbook(recap: SessionRecap, activities: ClassActivity[] = [], responsesByActivity: Record<string, ActivityResponse[]> = {}, note = "") {
+  // Use the universal Blob writer so extension CSP / Worker URL handling cannot
+  // block a recap download from the packaged dashboard.
+  const { default: writeExcelFile } = await import("write-excel-file/universal");
   const rounds = [...activities].sort((a, b) => a.startedAtMs - b.startedAtMs);
   const stamp = (milliseconds: number) => { const d = new Date(milliseconds); const pad = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   const minutes = (milliseconds: number) => Math.round(milliseconds / 60000);
@@ -175,58 +171,80 @@ function downloadSessionCsv(recap: SessionRecap, activities: ClassActivity[] = [
 
   const withStats = rows.filter(row => row.stats && row.stats.meetingMs > 0);
   const averageFocus = withStats.length ? Math.round(withStats.reduce((sum, row) => sum + (row.stats?.focusPercent ?? 0), 0) / withStats.length) : "";
-  const lines: (string | number | null | undefined)[][] = [
-    ["iSeenta session summary"],
-    ["Meeting code", recap.session.meetingCode],
-    ["Started", stamp(recap.session.startedAtMs)],
-    ["Ended", stamp(recap.endedAtMs)],
-    ["Duration", formatDuration(recap.elapsedMs)],
-    ["Students", rows.length],
-    ["Questions asked", rounds.length],
+  const meetingRows: (string | number)[][] = [
+    ["Meeting code", recap.session.meetingCode], ["Started", stamp(recap.session.startedAtMs)],
+    ["Ended", stamp(recap.endedAtMs)], ["Duration", formatDuration(recap.elapsedMs)],
+    ["Students in report", rows.length], ["Questions asked", rounds.length],
     ["Average focus share (%)", averageFocus],
-    ...(note ? [["Note", note]] : []),
-    [],
-    ["STUDENT SUMMARY"],
-    ["Student", "Email", "Final status", "Time in Meet (min)", "Focused (min)", "Away (min)", "Idle or locked (min)", "Focus share (%)", "Tab switches", "Times away", "Questions asked", "Answered", "Correct", "Incorrect", "No answer", ...rounds.map((_, index) => `Q${index + 1}`)],
+    ...(note ? [["Note", note] as (string | number)[]] : [])
   ];
+  const activityHeaders = ["Student", "Email", "Final status", "Time in Meet (min)", "Focused (min)", "Away (min)", "Idle or locked (min)", "Focus share (%)", "Tab switches", "Times away"];
+  const activityRows: (string | number)[][] = [];
   for (const person of rows) {
-    const asked = rounds.filter(round => askedTo(round, person));
-    const verdicts = asked.map(round => activityVerdict(round, responseFor(round, person)));
     const stats = person.stats;
-    lines.push([
+    activityRows.push([
       person.name, person.email, person.status,
       stats ? minutes(stats.meetingMs) : "", stats ? minutes(stats.focusedMs) : "", stats ? minutes(stats.awayMs) : "", stats ? minutes(stats.idleMs) : "",
-      stats ? stats.focusPercent : "", stats ? stats.switches : "", stats ? stats.counts.get("AWAY") ?? 0 : "",
-      asked.length, verdicts.filter(verdict => verdict !== "No answer").length, verdicts.filter(verdict => verdict === "Correct").length, verdicts.filter(verdict => verdict === "Incorrect").length, verdicts.filter(verdict => verdict === "No answer").length,
-      ...rounds.map(round => askedTo(round, person) ? activityVerdict(round, responseFor(round, person)) : "Not asked"),
+      stats ? stats.focusPercent : "", stats ? stats.switches : "", stats ? stats.counts.get("AWAY") ?? 0 : ""
     ]);
   }
+  const questionHeaders = ["Question #", "Question or prompt", "Format", "Correct answer", "Student", "Email", "Student answer", "Result", "Submitted at"];
+  const questionRows: (string | number)[][] = [];
   if (rounds.length) {
-    lines.push([], ["QUESTION SUMMARY"], ["#", "Question", "Type", "Correct answer", "Asked", "Answered", "Correct", "Incorrect", "No answer", "Correct rate (%)", "Answer breakdown"]);
     rounds.forEach((round, index) => {
-      const responses = responsesByActivity[round.id] ?? [];
-      const asked = Math.max(round.targetUids?.length ?? 0, responses.length);
       const expected = activityExpected(round);
-      const correct = expected ? responses.filter(item => normalizeAnswer(item.answer) === normalizeAnswer(expected)).length : 0;
-      const counts = new Map<string, number>();
-      const shown = new Map<string, string>();
-      for (const item of responses) {
-        const key = normalizeAnswer(item.answer);
-        if (!shown.has(key)) shown.set(key, item.answer.trim().replace(/\s+/g, " "));
-        counts.set(key, (counts.get(key) ?? 0) + 1);
+      const askedStudents = rows.filter(person => askedTo(round, person));
+      for (const person of askedStudents) {
+        const response = responseFor(round, person);
+        questionRows.push([
+          index + 1, activityLabel(round), activityKind(round), expected,
+          person.name, person.email, response?.answer ?? "", activityVerdict(round, response),
+          response?.answeredAt?.toDate ? stamp(response.answeredAt.toDate().getTime()) : ""
+        ]);
       }
-      const breakdown = round.responseType === "multiple-choice" && round.options?.length
-        ? round.options.map(option => `${option}: ${counts.get(normalizeAnswer(option)) ?? 0}`).join(" | ")
-        : [...counts].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([key, count]) => `${shown.get(key)} (${count})`).join(" | ");
-      lines.push([index + 1, activityLabel(round), activityKind(round), expected, asked, responses.length, expected ? correct : "", expected ? responses.length - correct : "", Math.max(0, asked - responses.length), expected && asked ? Math.round(correct / asked * 100) : "", breakdown]);
     });
   }
-  const csv = `\uFEFF${lines.map(row => row.map(csvCell).join(",")).join("\r\n")}`;
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const anchor = document.createElement("a");
   const date = new Date(recap.session.startedAtMs).toISOString().slice(0, 10);
+  const titleStyle = { backgroundColor: "#581923", textColor: "#FFFFFF", fontWeight: "bold" as const, fontSize: 16, height: 32, alignVertical: "center" as const };
+  const subtitleStyle = { backgroundColor: "#F5EAE8", textColor: "#694D4D", fontSize: 10, height: 28, wrap: true, alignVertical: "center" as const, bottomBorderStyle: "thin" as const, bottomBorderColor: "#D9C3C0" };
+  const headerStyle = { backgroundColor: "#812B38", textColor: "#FFFFFF", fontWeight: "bold" as const, fontSize: 10, height: 32, wrap: true, alignVertical: "center" as const, bottomBorderStyle: "thin" as const, bottomBorderColor: "#6A202B" };
+  const bodyStyle = (backgroundColor: string) => ({ backgroundColor, textColor: "#302326", fontSize: 10, height: 22, wrap: true, alignVertical: "center" as const, bottomBorderStyle: "thin" as const, bottomBorderColor: "#E6DAD8" });
+  type StyledCell = { value: string | number; backgroundColor: string; textColor: string; fontWeight?: "bold"; fontSize?: number; height?: number; wrap?: boolean; alignVertical?: "center"; bottomBorderStyle?: "thin"; bottomBorderColor?: string; align?: "center"; columnSpan?: number };
+  const makeSheet = (sheet: string, title: string, subtitle: string, headers: string[], data: (string | number)[][], widths: number[], statusColumn = -1) => {
+    const rows: (StyledCell | null)[][] = [
+      [{ value: title, columnSpan: headers.length, ...titleStyle }, ...Array.from({ length: headers.length - 1 }, () => null)],
+      [{ value: subtitle, columnSpan: headers.length, ...subtitleStyle }, ...Array.from({ length: headers.length - 1 }, () => null)],
+      headers.map(value => ({ value, ...headerStyle })),
+      ...data.map((row, rowIndex) => {
+        const questionIndex = Number(row[0]) || 0;
+        const stripe = questionIndex ? (questionIndex % 2 ? "#FFF9F7" : "#F5ECEA") : (rowIndex % 2 ? "#F5ECEA" : "#FFF9F7");
+        const cells: StyledCell[] = headers.map((_, index) => ({ value: row[index] ?? "", ...bodyStyle(stripe) }));
+        if (statusColumn >= 0) {
+          const result = String(row[statusColumn] ?? "");
+          const resultStyle = result === "Correct"
+            ? { backgroundColor: "#E5F3E8", textColor: "#28623A" }
+            : result === "Incorrect"
+              ? { backgroundColor: "#FBE9E7", textColor: "#8A3531" }
+              : result === "No answer"
+                ? { backgroundColor: "#FFF2D8", textColor: "#76551B" }
+                : { backgroundColor: "#EAF0F4", textColor: "#425B6D" };
+          cells[statusColumn] = { ...cells[statusColumn], ...resultStyle, fontWeight: "bold", align: "center" };
+        }
+        return cells;
+      })
+    ];
+    return { data: rows, sheet, columns: widths.map(width => ({ width })), stickyRowsCount: 3, showGridLines: false, zoomScale: sheet === "Questions & Answers" ? 0.85 : 0.9 };
+  };
+  const sheets = [
+    makeSheet("Meeting Info", "SESSION RECAP", "Meeting details and report coverage", ["Meeting detail", "Value"], meetingRows, [30, 48]),
+    makeSheet("Student Activity", "STUDENT ACTIVITY", "One row per student · durations are shown in minutes", activityHeaders, activityRows, [26, 38, 18, 22, 18, 18, 24, 18, 16, 14]),
+    makeSheet("Questions & Answers", "QUESTIONS & ANSWERS", "Correct · green   Incorrect · red   No answer · amber", questionHeaders, questionRows, [13, 42, 20, 30, 26, 38, 38, 16, 24], 7)
+  ];
+  const blob = await writeExcelFile(sheets, { fontFamily: "Aptos", fontSize: 10 }).toBlob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `iseenta-session-${recap.session.meetingCode}-${date}.csv`;
+  anchor.download = `iseenta-session-${recap.session.meetingCode}-${date}.xlsx`;
   anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -1004,9 +1022,15 @@ export default function App() {
       setRefreshingActivity(false);
     }
   };
-  const exportSessionRecap = () => {
+  const exportSessionRecap = async () => {
     if (sessionRecap?.session.status !== "ended") return;
-    downloadSessionCsv(sessionRecap, classActivities, activityResponses);
+    try {
+      await downloadSessionWorkbook(sessionRecap, classActivities, activityResponses);
+    } catch (error) {
+      console.error("Could not download session recap", error);
+      setLoadError("Could not download the Excel recap. Please try again.");
+      return;
+    }
     setDownloadedRecaps(current => {
       if (current.includes(sessionRecap.session.id)) return current;
       const next = [...current, sessionRecap.session.id].slice(-50);
@@ -1081,10 +1105,11 @@ export default function App() {
         rounds = [];
         note = "Question results could not be loaded for this recap.";
       }
-      downloadSessionCsv(recap, rounds, answers, note);
+      await downloadSessionWorkbook(recap, rounds, answers, note);
     } catch (error) {
       console.error("Could not export retained session", error);
-      setHistoryError("Could not export this recap. Some activity may have expired or access may be temporarily unavailable.");
+      const detail = error instanceof Error ? error.message : String(error);
+      setHistoryError(`Could not export this recap: ${detail || "activity may have expired or access may be temporarily unavailable."}`);
     } finally { setExportingSessionId(null); }
   };
   const acknowledgeAfkRequest = async (notice: AfkNotice) => {
@@ -1410,7 +1435,7 @@ export default function App() {
               {expiryTicks.map(tick => <i key={tick.day} className={`${tick.day === nextExpiryDays ? "next " : ""}${tick.day <= 7 ? "soon" : ""}`} style={{ left: `${tick.day / 30 * 100}%`, height: `${8 + Math.min(3, tick.count - 1) * 3}px` }} />)}
             </div>
             <div className="hs-expiry-axis" aria-hidden="true"><span>Today</span><span>In 30 days</span></div>
-            <p className="hs-retention-note">{historyLoaded && historyByDate.length ? (expiringSoonCount ? `${expiringSoonCount} of ${retainedSessions.length} recaps expire this week.` : "None expire this week.") : "Recaps appear here once a class ends."} Export a CSV to keep one.</p>
+            <p className="hs-retention-note">{historyLoaded && historyByDate.length ? (expiringSoonCount ? `${expiringSoonCount} of ${retainedSessions.length} recaps expire this week.` : "None expire this week.") : "Recaps appear here once a class ends."} Export an Excel workbook to keep one.</p>
           </div>
         </div>
 
@@ -1483,7 +1508,7 @@ export default function App() {
 
         <section id="available-session-recaps" className="panel history-table-panel hx-panel" aria-labelledby="history-list-title">
           <div className="hx-panel-head">
-            <div><h2 id="history-list-title">Available session recaps</h2><p>Download a CSV copy to keep a recap beyond the retention window.</p></div>
+            <div><h2 id="history-list-title">Available session recaps</h2><p>Download an Excel workbook to keep a recap beyond the retention window.</p></div>
             <button type="button" className="btn btn-outline history-refresh" onClick={() => { setHistoryLoaded(false); void loadRetainedSessions(); }} disabled={!user || historyLoading}><RefreshCw className={historyLoading ? "spin" : ""} />{historyLoading ? "Refreshing" : "Refresh"}</button>
           </div>
           <div className="hx-toolbar">
@@ -1522,7 +1547,7 @@ export default function App() {
                     <span className="hx-code"><Video size={14} />{session.meetingCode}</span>
                     <p className="hx-meta">{ended.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {formatDuration(session.elapsedMs)} · <span className={`hx-expiry${daysLeft <= 7 ? " soon" : ""}`} title={`Deleted on ${formatDate(expiresAt)}`}>{daysLeft === 0 ? "deleted today" : `${daysLeft}d left`}</span></p>
                   </div>
-                  <button type="button" className="btn btn-outline hx-download retention-export" onClick={() => void exportRetainedSession(session)} disabled={Boolean(exportingSessionId)} aria-label={`Download CSV recap for session ${session.meetingCode}, ended ${formatDate(session.endedAtMs)}`}>{exportingSessionId === session.id ? <><span className="loading-dot" aria-hidden="true" />Preparing</> : <><Download />CSV</>}</button>
+                  <button type="button" className="btn btn-outline hx-download retention-export" onClick={() => void exportRetainedSession(session)} disabled={Boolean(exportingSessionId)} aria-label={`Download Excel recap for session ${session.meetingCode}, ended ${formatDate(session.endedAtMs)}`}>{exportingSessionId === session.id ? <><span className="loading-dot" aria-hidden="true" />Preparing</> : <><Download />Excel</>}</button>
                 </article>;
               })}</div>
             </section>)}</div>}
