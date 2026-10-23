@@ -197,3 +197,13 @@
   .account-chip { padding: 4px; }
   .account-chip .account-avatar { display: none; }
 }
+
+/* BANNER TIMER: status pill sits on the caption line so the layout is the same
+   with or without the recap download button. */
+.session-panel .timer-row { justify-content: space-between; gap: 18px; }
+.session-panel .timer-caption-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+.session-panel .timer-caption-row .timer-caption { margin: 0; }
+.session-panel .timer-caption-row .status-pill { padding: 3px 9px; font-size: 11px; line-height: 1.4; }
+.session-panel .timer-caption-row .status-pill .dot { width: 6px; height: 6px; }
+.session-panel .timer-controls { margin-left: 0; flex-shrink: 0; }
+@media (max-width: 699px) { .session-panel .timer-row { flex-wrap: nowrap; } }

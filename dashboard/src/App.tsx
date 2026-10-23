@@ -135,22 +135,91 @@ function summarizeStudentActivity(events: TrackerEvent[], asOf: number): Student
 }
 
 function csvCell(value: string | number | null | undefined) {
-  const text = value == null ? "" : String(value);
+  let text = value == null ? "" : String(value);
+  // Names and answers come from students: stop spreadsheets from reading them as formulas.
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-function downloadSessionCsv(recap: SessionRecap) {
-  const columns = ["record_type", "session_id", "meeting_code", "started_at", "ended_at", "elapsed_seconds", "attendance_count", "student_name", "student_email", "status", "focused_seconds", "away_seconds", "idle_or_locked_seconds", "time_in_meet_seconds", "focus_share_percent", "tab_switches", "event_type", "event_time", "open_tabs"];
-  const lines: (string | number | null | undefined)[][] = [columns];
-  lines.push(["SESSION", recap.session.id, recap.session.meetingCode, new Date(recap.session.startedAtMs).toISOString(), new Date(recap.endedAtMs).toISOString(), Math.floor(recap.elapsedMs / 1000), recap.students.length]);
+const normalizeAnswer = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+const activityExpected = (activity: ClassActivity) => (activity.question ? activity.correctAnswer ?? "" : activity.word ?? "").trim();
+const activityLabel = (activity: ClassActivity) => activity.question?.trim() || `Type: ${activity.word ?? ""}`;
+const activityKind = (activity: ClassActivity) => !activity.question ? "Word check"
+  : activity.responseType === "multiple-choice" ? (activity.correctAnswer ? "Multiple choice" : "Poll")
+  : (activity.correctAnswer ? "Short answer" : "Open question");
+const activityVerdict = (activity: ClassActivity, response: ActivityResponse | undefined) => {
+  if (!response) return "No answer";
+  const expected = activityExpected(activity);
+  if (!expected) return "Answered";
+  return normalizeAnswer(response.answer) === normalizeAnswer(expected) ? "Correct" : "Incorrect";
+};
+
+// One-page report for the professor: session header, one row per student, one row per question.
+function downloadSessionCsv(recap: SessionRecap, activities: ClassActivity[] = [], responsesByActivity: Record<string, ActivityResponse[]> = {}, note = "") {
+  const rounds = [...activities].sort((a, b) => a.startedAtMs - b.startedAtMs);
+  const stamp = (milliseconds: number) => { const d = new Date(milliseconds); const pad = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const minutes = (milliseconds: number) => Math.round(milliseconds / 60000);
   const orderedEvents = [...recap.events].sort((a, b) => a.time - b.time || a.id.localeCompare(b.id));
-  for (const student of recap.students) {
-    const studentEvents = orderedEvents.filter(event => event.email === student.email);
-    const stats = summarizeStudentActivity(studentEvents, recap.endedAtMs);
-    lines.push(["STUDENT", recap.session.id, recap.session.meetingCode, "", "", "", "", student.name, student.email, student.status, Math.floor(stats.focusedMs / 1000), Math.floor(stats.awayMs / 1000), Math.floor(stats.idleMs / 1000), Math.floor(stats.meetingMs / 1000), stats.focusPercent, stats.switches]);
+
+  // Everyone who either appeared in Meet or was asked a question, keyed by email.
+  type Row = { name: string; email: string; uid: string; status: string; stats: StudentActivityStats | null };
+  const people = new Map<string, Row>();
+  for (const student of recap.students) people.set(student.email.toLowerCase(), { name: student.name, email: student.email, uid: student.uid, status: student.status, stats: summarizeStudentActivity(orderedEvents.filter(event => event.email === student.email), recap.endedAtMs) });
+  for (const round of rounds) for (const target of round.targetStudents ?? []) {
+    const key = target.email.toLowerCase();
+    if (!people.has(key)) people.set(key, { name: target.name, email: target.email, uid: target.uid, status: "Not detected", stats: null });
   }
-  for (const event of orderedEvents) {
-    lines.push(["EVENT", recap.session.id, recap.session.meetingCode, "", "", "", "", event.student ?? "", event.email ?? "", "", "", "", "", "", "", "", event.type, new Date(event.time).toISOString(), Number.isInteger(event.tabCount) ? event.tabCount : ""]);
+  const rows = [...people.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const responseFor = (round: ClassActivity, person: Row) => (responsesByActivity[round.id] ?? []).find(item => item.uid === person.uid || item.email.toLowerCase() === person.email.toLowerCase());
+  const askedTo = (round: ClassActivity, person: Row) => (round.targetUids ?? []).includes(person.uid) || (round.targetStudents ?? []).some(target => target.email.toLowerCase() === person.email.toLowerCase());
+
+  const withStats = rows.filter(row => row.stats && row.stats.meetingMs > 0);
+  const averageFocus = withStats.length ? Math.round(withStats.reduce((sum, row) => sum + (row.stats?.focusPercent ?? 0), 0) / withStats.length) : "";
+  const lines: (string | number | null | undefined)[][] = [
+    ["iSeenta session summary"],
+    ["Meeting code", recap.session.meetingCode],
+    ["Started", stamp(recap.session.startedAtMs)],
+    ["Ended", stamp(recap.endedAtMs)],
+    ["Duration", formatDuration(recap.elapsedMs)],
+    ["Students", rows.length],
+    ["Questions asked", rounds.length],
+    ["Average focus share (%)", averageFocus],
+    ...(note ? [["Note", note]] : []),
+    [],
+    ["STUDENT SUMMARY"],
+    ["Student", "Email", "Final status", "Time in Meet (min)", "Focused (min)", "Away (min)", "Idle or locked (min)", "Focus share (%)", "Tab switches", "Times away", "Questions asked", "Answered", "Correct", "Incorrect", "No answer", ...rounds.map((_, index) => `Q${index + 1}`)],
+  ];
+  for (const person of rows) {
+    const asked = rounds.filter(round => askedTo(round, person));
+    const verdicts = asked.map(round => activityVerdict(round, responseFor(round, person)));
+    const stats = person.stats;
+    lines.push([
+      person.name, person.email, person.status,
+      stats ? minutes(stats.meetingMs) : "", stats ? minutes(stats.focusedMs) : "", stats ? minutes(stats.awayMs) : "", stats ? minutes(stats.idleMs) : "",
+      stats ? stats.focusPercent : "", stats ? stats.switches : "", stats ? stats.counts.get("AWAY") ?? 0 : "",
+      asked.length, verdicts.filter(verdict => verdict !== "No answer").length, verdicts.filter(verdict => verdict === "Correct").length, verdicts.filter(verdict => verdict === "Incorrect").length, verdicts.filter(verdict => verdict === "No answer").length,
+      ...rounds.map(round => askedTo(round, person) ? activityVerdict(round, responseFor(round, person)) : "Not asked"),
+    ]);
+  }
+  if (rounds.length) {
+    lines.push([], ["QUESTION SUMMARY"], ["#", "Question", "Type", "Correct answer", "Asked", "Answered", "Correct", "Incorrect", "No answer", "Correct rate (%)", "Answer breakdown"]);
+    rounds.forEach((round, index) => {
+      const responses = responsesByActivity[round.id] ?? [];
+      const asked = Math.max(round.targetUids?.length ?? 0, responses.length);
+      const expected = activityExpected(round);
+      const correct = expected ? responses.filter(item => normalizeAnswer(item.answer) === normalizeAnswer(expected)).length : 0;
+      const counts = new Map<string, number>();
+      const shown = new Map<string, string>();
+      for (const item of responses) {
+        const key = normalizeAnswer(item.answer);
+        if (!shown.has(key)) shown.set(key, item.answer.trim().replace(/\s+/g, " "));
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      const breakdown = round.responseType === "multiple-choice" && round.options?.length
+        ? round.options.map(option => `${option}: ${counts.get(normalizeAnswer(option)) ?? 0}`).join(" | ")
+        : [...counts].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([key, count]) => `${shown.get(key)} (${count})`).join(" | ");
+      lines.push([index + 1, activityLabel(round), activityKind(round), expected, asked, responses.length, expected ? correct : "", expected ? responses.length - correct : "", Math.max(0, asked - responses.length), expected && asked ? Math.round(correct / asked * 100) : "", breakdown]);
+    });
   }
   const csv = `\uFEFF${lines.map(row => row.map(csvCell).join(",")).join("\r\n")}`;
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -350,6 +419,7 @@ export default function App() {
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [exportingSessionId, setExportingSessionId] = useState<string | null>(null);
+  const [downloadedRecaps, setDownloadedRecaps] = useState<string[]>(() => { try { const stored = JSON.parse(localStorage.getItem("iseenta-downloaded-recaps") ?? "[]"); return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : []; } catch { return []; } });
   const [historyPage, setHistoryPage] = useState(0);
   const [historySearch, setHistorySearch] = useState("");
   const [historySort, setHistorySort] = useState<"newest" | "oldest">("newest");
@@ -935,7 +1005,14 @@ export default function App() {
     }
   };
   const exportSessionRecap = () => {
-    if (sessionRecap?.session.status === "ended") downloadSessionCsv(sessionRecap);
+    if (sessionRecap?.session.status !== "ended") return;
+    downloadSessionCsv(sessionRecap, classActivities, activityResponses);
+    setDownloadedRecaps(current => {
+      if (current.includes(sessionRecap.session.id)) return current;
+      const next = [...current, sessionRecap.session.id].slice(-50);
+      try { localStorage.setItem("iseenta-downloaded-recaps", JSON.stringify(next)); } catch { /* storage unavailable */ }
+      return next;
+    });
   };
   const loadRetainedSessions = async () => {
     if (!user || mockStudentCount || historyLoading) return;
@@ -989,7 +1066,22 @@ export default function App() {
       const snapshot = await getDocs(query(collection(db, "events"), where("sessionId", "==", session.id)));
       const sessionEvents = snapshot.docs.map(item => ({ ...item.data(), id: item.id, time: Number(item.data().time) } as TrackerEvent));
       const recap: SessionRecap = { session, students: toStudents(sessionEvents, session.endedAtMs), events: sessionEvents, elapsedMs: session.elapsedMs, endedAtMs: session.endedAtMs };
-      downloadSessionCsv(recap);
+      let rounds: ClassActivity[] = [];
+      const answers: Record<string, ActivityResponse[]> = {};
+      let note = "";
+      try {
+        const roundSnapshot = await getDocs(query(collection(db, "classActivities"), where("sessionId", "==", session.id), where("teacherUid", "==", user?.uid ?? "")));
+        rounds = roundSnapshot.docs.map(item => ({ ...item.data(), id: item.id } as ClassActivity));
+        await Promise.all(rounds.map(async round => {
+          const responseSnapshot = await getDocs(collection(db, "classActivities", round.id, "responses"));
+          answers[round.id] = responseSnapshot.docs.map(item => item.data() as ActivityResponse);
+        }));
+      } catch (error) {
+        console.warn("Could not load question results for this recap", error);
+        rounds = [];
+        note = "Question results could not be loaded for this recap.";
+      }
+      downloadSessionCsv(recap, rounds, answers, note);
     } catch (error) {
       console.error("Could not export retained session", error);
       setHistoryError("Could not export this recap. Some activity may have expired or access may be temporarily unavailable.");
@@ -1047,6 +1139,7 @@ export default function App() {
   const breakdownShare = (ms: number) => activityStats && activityStats.meetingMs ? (ms / activityStats.meetingMs) * 100 : 0;
   const sessionStateLabel = activeSession ? (timerRunning ? "Live" : "Paused") : "Ready";
 
+  const recapDownloaded = Boolean(sessionRecap && downloadedRecaps.includes(sessionRecap.session.id));
   const recapReady = Boolean(sessionRecap?.session.status === "ended" && !activeSession && sessionRecap.session.meetingCode === meetingCode && parseMeetingCode(meetingLinkDraft) === sessionRecap.session.meetingCode);
   const sessionSignal = activeSession ? (timerRunning ? "active" : "idle") : "not-detected";
   const filtersActive = awayOnly || search.trim() !== "";
@@ -1097,12 +1190,11 @@ export default function App() {
         </div>
         <div className="session-tools">
           <div className="timer-row">
-            <div><div className="timer-caption">{recapReady ? "Last session · recap ready" : "Session elapsed"}</div><div className="number timer">{formatClock(elapsedSeconds)}</div></div>
-            <span className={`pill status-pill signal-${sessionSignal}`}><span className="dot" />{sessionStateLabel}</span>
+            <div className="timer-block"><div className="timer-caption-row"><span className="timer-caption">{recapReady ? "Last session · recap ready" : "Session elapsed"}</span><span className={`pill status-pill signal-${sessionSignal}`}><span className="dot" />{sessionStateLabel}</span></div><div className="number timer">{formatClock(elapsedSeconds)}</div></div>
             <div className="timer-controls">
               <button type="button" className="btn btn-ghost btn-icon ctrl ctrl-solid" onClick={() => void toggleTimer()} disabled={Boolean(mockStudentCount) || sessionBusy || !ownsActiveSession} aria-label={timerRunning ? "Pause session tracking" : activeSession ? "Resume session tracking" : "Start class session"} title={timerRunning ? "Pause tracking" : activeSession ? "Resume tracking" : "Start session"}>{timerRunning ? <Pause /> : <Play />}</button>
               <button type="button" className="btn btn-ghost btn-icon ctrl ctrl-ghost" onClick={() => void stopTimer()} disabled={Boolean(mockStudentCount) || sessionBusy || !activeSession || !ownsActiveSession} aria-label="Stop class session" title="Stop session"><Square size={14} /></button>
-              {recapReady && <button type="button" className="btn btn-ghost btn-icon ctrl ctrl-ghost recap-btn" onClick={exportSessionRecap} disabled={Boolean(mockStudentCount)} aria-label="Download session recap" title="Download session recap"><Download /><span className="recap-dot" aria-hidden="true" /></button>}
+              {recapReady && <button type="button" className="btn btn-ghost btn-icon ctrl ctrl-ghost recap-btn" onClick={exportSessionRecap} disabled={Boolean(mockStudentCount)} aria-label="Download session recap" title="Download session recap"><Download />{!recapDownloaded && <span className="recap-dot" aria-hidden="true" />}</button>}
             </div>
           </div>
           <div className="meeting-tools">
