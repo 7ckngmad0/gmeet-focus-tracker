@@ -93,7 +93,8 @@ function renderClassActivity() {
   }
   $("activity-options").querySelectorAll("input").forEach(input => {
     input.disabled = expired || Boolean(currentActivityResponse);
-    input.checked = currentActivityResponse?.answer === input.value;
+    // Keep what the student just picked; the countdown re-renders this every second
+    if (currentActivityResponse) input.checked = currentActivityResponse.answer === input.value;
   });
   $("activity-answer").disabled = multipleChoice || expired || Boolean(currentActivityResponse);
   $("activity-submit").disabled = expired || Boolean(currentActivityResponse);

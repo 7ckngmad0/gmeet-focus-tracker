@@ -3,10 +3,11 @@ import { createPortal } from "react-dom";
 import { addDoc, collection, doc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth/web-extension";
 import { signInWithPopup as webSignInWithPopup } from "firebase/auth";
-import { Activity, ArrowRight, ArrowUpDown, Bell, LayoutDashboard, LayoutGrid, Rows3, ScrollText, BookOpen, CalendarDays, Check, Clock3, Copy, Download, History, Info, LockKeyhole, LogIn, LogOut, PanelsTopLeft, Pause, Pencil, Play, RefreshCw, Search, Square, TableProperties, Users, Video, WifiOff, X } from "lucide-react";
+import { MessagesSquare, Volume2, VolumeX, ChevronDown, Activity, ArrowRight, ArrowUpDown, Bell, LayoutDashboard, LayoutGrid, Rows3, ScrollText, BookOpen, CalendarDays, Check, Clock3, Copy, Download, History, Info, LockKeyhole, LogIn, LogOut, PanelsTopLeft, Pause, Pencil, Play, RefreshCw, Search, Square, TableProperties, Users, Video, WifiOff, X } from "lucide-react";
 import { useRef } from "react";
 import { auth, db, googleProvider } from "./firebase";
 import { Wordmark } from "./Logo";
+import { playSound, setSoundsEnabled, soundsEnabled } from "./sounds";
 
 type EventType = "JOINED" | "RETURNED" | "AWAY" | "LEFT" | "IDLE" | "LOCKED" | "ACTIVE" | "TABS_UPDATED" | "HEARTBEAT";
 type TrackerEvent = { id: string; email?: string; student?: string; uid?: string; type: EventType; time: number; tabCount?: number; meetingCode?: string; sessionId?: string; receivedAt?: { seconds?: number; nanoseconds?: number; toMillis?: () => number } | null };
@@ -71,7 +72,8 @@ const parseMeetingCode = (value: string) => {
     try {
       const url = new URL(candidate);
       if (url.hostname.toLowerCase() !== "meet.google.com") return "";
-      const code = url.pathname.split("/").filter(Boolean)[0] ?? "";
+      const segments = url.pathname.split("/").filter(Boolean);
+      const code = (segments[0]?.toLowerCase() === "meet" ? segments[1] : segments[0]) ?? "";
       return meetingCodePattern.test(code) ? code.toLowerCase() : "";
     } catch { return ""; }
   }
@@ -275,16 +277,14 @@ function useCountUp(target: number, duration = 650) {
 
 export default function App() {
   const detailDialog = useRef<HTMLDialogElement>(null);
-  const classActivityPanelRef = useRef<HTMLElement>(null);
   const afkRequestsRef = useRef<AfkNotice[]>([]);
   const notificationTimeoutsRef = useRef(new Map<string, number>());
   const notificationRemovalTimeoutsRef = useRef(new Map<string, number>());
   const activityResponseInitializedRef = useRef(new Set<string>());
   const activityKnownResponseIdsRef = useRef(new Set<string>());
-  const activityUnreadResponseIdsRef = useRef(new Set<string>());
   const activityResponseErrorsRef = useRef(new Map<string, string>());
   const activitySessionKeyRef = useRef("");
-  const showClassActivitiesRef = useRef(false);
+  const prevOpenActivityRef = useRef<string | null>(null);
   const [user, setUser] = useState(() => mockStudentCount ? ({ uid: "local-preview-professor", email: "preview@localhost" } as NonNullable<typeof auth.currentUser>) : auth.currentUser);
   const [events, setEvents] = useState<TrackerEvent[]>([]);
   const [classActivities, setClassActivities] = useState<ClassActivity[]>([]);
@@ -297,14 +297,22 @@ export default function App() {
   const [creatingActivity, setCreatingActivity] = useState(false);
   const [activityError, setActivityError] = useState("");
   const [activityResponseError, setActivityResponseError] = useState("");
-  const [activityUnreadCount, setActivityUnreadCount] = useState(0);
-  const [showClassActivities, setShowClassActivities] = useState(false);
-  const [activityResultFilter, setActivityResultFilter] = useState<"all" | "open" | "closed">("all");
+  const [pendingActivityIds, setPendingActivityIds] = useState<string[]>([]);
+  const [openPanel, setOpenPanel] = useState<null | "questions" | "away">(null);
+  const [lastPanel, setLastPanel] = useState<"questions" | "away">("questions");
+  const showClassActivities = openPanel === "questions";
+  const showAfkNotices = openPanel === "away";
+  const setShowAfkNotices = (next: boolean | ((current: boolean) => boolean)) => setOpenPanel(current => { const value = typeof next === "function" ? next(current === "away") : next; return value ? "away" : current === "away" ? null : current; });
+  const togglePanel = (panel: "questions" | "away") => setOpenPanel(current => current === panel ? null : panel);
+  const [soundsOn, setSoundsOn] = useState(soundsEnabled);
+  const [expandedRounds, setExpandedRounds] = useState<Record<string, boolean>>({});
+  const [roundFilters, setRoundFilters] = useState<Record<string, "all" | "correct" | "incorrect" | "none">>({});
+  const [hideCorrections, setHideCorrections] = useState<Record<string, boolean>>({});
+  const [activityResultFilter, setActivityResultFilter] = useState<"all" | "live" | "ended">("all");
   const [dashboardNotifications, setDashboardNotifications] = useState<DashboardNotification[]>([]);
   const [exitingDashboardNotifications, setExitingDashboardNotifications] = useState<string[]>([]);
   const [afkRequests, setAfkRequests] = useState<AfkNotice[]>([]);
   const [afkNoticeTab, setAfkNoticeTab] = useState<"away" | "pending" | "acknowledged" | "returned">("pending");
-  const [showAfkNotices, setShowAfkNotices] = useState(false);
   const [acknowledgingRequestId, setAcknowledgingRequestId] = useState<string | null>(null);
   const [sendingProfessorAlert, setSendingProfessorAlert] = useState(false);
   const [professorAlertFeedback, setProfessorAlertFeedback] = useState("");
@@ -362,6 +370,7 @@ export default function App() {
     notificationRemovalTimeoutsRef.current.set(id, removalTimer);
   };
   const addDashboardNotification = (notification: DashboardNotification) => {
+    if (notification.kind === "returned") playSound("notify");
     const id = notification.kind === "returned" && notification.email ? `returned-${notification.email.toLowerCase()}` : notification.id;
     const coalescedNotification = { ...notification, id };
     const oldTimer = notificationTimeoutsRef.current.get(id);
@@ -512,8 +521,6 @@ export default function App() {
         .sort((a, b) => b.time - a.time)[0];
       latestSeenEventTime = Math.max(latestSeenEventTime, ...nextEvents.map(event => event.time));
       if (returnedEvent?.email) {
-        const hasOpenAfkNotice = afkRequestsRef.current.some(notice => notice.studentEmail.toLowerCase() === returnedEvent.email?.toLowerCase() && notice.status !== "returned");
-        if (hasOpenAfkNotice) setShowAfkNotices(true);
         addDashboardNotification({ id: returnedEvent.id, kind: "returned", message: "Returned to Google Meet", name: returnedEvent.student || returnedEvent.email, email: returnedEvent.email, time: returnedEvent.time });
       }
     }, error => {
@@ -528,14 +535,11 @@ export default function App() {
       activitySessionKeyRef.current = sessionKey;
       activityResponseInitializedRef.current.clear();
       activityKnownResponseIdsRef.current.clear();
-      activityUnreadResponseIdsRef.current.clear();
-      setActivityUnreadCount(0);
     }
     if (mockStudentCount || !user || !activitySession || activitySession.teacherUid !== user.uid) {
       setClassActivities([]);
       setActivityResponses({});
-      showClassActivitiesRef.current = false;
-      setShowClassActivities(false);
+      setOpenPanel(current => current === "questions" ? null : current);
       return;
     }
     const sessionActivities = query(
@@ -543,10 +547,14 @@ export default function App() {
       where("sessionId", "==", activitySession.id),
       where("teacherUid", "==", user.uid)
     );
-    return onSnapshot(sessionActivities, snapshot => {
+    return onSnapshot(sessionActivities, { includeMetadataChanges: true }, snapshot => {
       const nextActivities = snapshot.docs
         .map(item => ({ ...item.data(), id: item.id } as ClassActivity))
         .sort((a, b) => b.startedAtMs - a.startedAtMs);
+      // A question you just posted exists locally before Firestore has it. Its answers
+      // are only listened to once the server has it, or the rules reject the early request.
+      const pending = snapshot.docs.filter(item => item.metadata.hasPendingWrites).map(item => item.id).sort();
+      setPendingActivityIds(current => current.join(",") === pending.join(",") ? current : pending);
       setClassActivities(nextActivities);
     }, error => {
       console.error("Could not load class activities", error);
@@ -565,11 +573,9 @@ export default function App() {
       setActivityResponses({});
       activityResponseInitializedRef.current.clear();
       activityKnownResponseIdsRef.current.clear();
-      activityUnreadResponseIdsRef.current.clear();
-      setActivityUnreadCount(0);
       return;
     }
-    const unsubscribers = classActivities.map(activity => onSnapshot(
+    const unsubscribers = classActivities.filter(activity => !pendingActivityIds.includes(activity.id)).map(activity => onSnapshot(
       collection(db, "classActivities", activity.id, "responses"),
       snapshot => {
         activityResponseErrorsRef.current.delete(activity.id);
@@ -584,9 +590,7 @@ export default function App() {
             const responseId = `${activity.id}:${change.doc.id}`;
             if (knownIds.has(responseId)) return;
             knownIds.add(responseId);
-            if (!showClassActivitiesRef.current) activityUnreadResponseIdsRef.current.add(responseId);
           });
-          setActivityUnreadCount(activityUnreadResponseIdsRef.current.size);
         }
         setActivityResponses(current => ({
           ...current,
@@ -603,7 +607,7 @@ export default function App() {
       }
     ));
     return () => unsubscribers.forEach(unsubscribe => unsubscribe());
-  }, [classActivities]);
+  }, [classActivities.map(activity => activity.id).join(","), pendingActivityIds.join(",")]);
   useEffect(() => {
     if (mockStudentCount || !user || !activeSession) { afkRequestsRef.current = []; setAfkRequests([]); return; }
     const noticesQuery = query(collection(db, "afkRequests"), where("teacherUid", "==", user.uid));
@@ -616,9 +620,8 @@ export default function App() {
       if (!initialSnapshot) {
         for (const notice of notices) {
           const previousNotice = afkRequestsRef.current.find(previous => previous.id === notice.id);
-          if (notice.status === "pending" && !previousNotice) { setShowAfkNotices(true); setAfkNoticeTab("pending"); }
+          if (notice.status === "pending" && !previousNotice) { setAfkNoticeTab("pending"); playSound("warning"); }
           if (notice.status === "returned" && previousNotice?.status !== "returned") {
-            setShowAfkNotices(true);
             setAfkNoticeTab("returned");
             addDashboardNotification({ id: `afk-return-${notice.id}`, kind: "returned", message: "Confirmed they are back from an away notice", name: notice.studentName || notice.studentEmail, email: notice.studentEmail, time: timestampMillis(notice.returnedAt) || Date.now() });
           }
@@ -627,7 +630,6 @@ export default function App() {
         const hasUnresolvedNotice = notices.some(notice => notice.status !== "returned");
         const hasRecentReturn = notices.some(notice => notice.status === "returned" && timestampMillis(notice.returnedAt) > 0 && Date.now() - timestampMillis(notice.returnedAt) < returnedNoticeLifetimeMs);
         if (hasUnresolvedNotice || hasRecentReturn) {
-          setShowAfkNotices(true);
           setAfkNoticeTab(hasRecentReturn && !hasUnresolvedNotice ? "returned" : notices.some(notice => notice.status === "pending") ? "pending" : "acknowledged");
         }
         initialSnapshot = false;
@@ -648,23 +650,10 @@ export default function App() {
   const openActivitySeconds = openClassActivity ? Math.max(0, Math.ceil((openClassActivity.expiresAtMs - now) / 1000)) : 0;
   const visibleClassActivities = classActivities.filter(activity => {
     const isOpen = activity.status === "active" && activity.expiresAtMs > now;
-    return activityResultFilter === "all" || (activityResultFilter === "open" ? isOpen : !isOpen);
+    return activityResultFilter === "all" || (activityResultFilter === "live" ? isOpen : !isOpen);
   });
   const activityOpenCount = classActivities.filter(activity => activity.status === "active" && activity.expiresAtMs > now).length;
   const activityClosedCount = classActivities.length - activityOpenCount;
-  const toggleClassActivities = () => {
-    const nextVisible = !showClassActivities;
-    showClassActivitiesRef.current = nextVisible;
-    setShowClassActivities(nextVisible);
-    if (nextVisible) {
-      activityUnreadResponseIdsRef.current.clear();
-      setActivityUnreadCount(0);
-      requestAnimationFrame(() => classActivityPanelRef.current?.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-        block: "start"
-      }));
-    }
-  };
   const startClassActivity = async () => {
     if (!user || !activeSession || activeSession.status !== "active" || creatingActivity || mockStudentCount) return;
     const question = activityQuestion.trim();
@@ -722,8 +711,7 @@ export default function App() {
       setActivityQuestion("");
       setActivityCorrectAnswer("");
       if (activityResponseType === "multiple-choice") setActivityOptions(["", ""]);
-      showClassActivitiesRef.current = true;
-      setShowClassActivities(true);
+      setOpenPanel("questions");
       setActivityResultFilter("all");
     } catch (error) {
       console.error("Could not start class activity", error);
@@ -821,6 +809,19 @@ export default function App() {
   const detailAsOf = activeSession?.status === "paused" ? (activeSession.pausedAtMs || now) : now;
   const activityStats = selectedStudent ? summarizeStudentActivity(selectedEvents, detailAsOf) : null;
   const ownsActiveSession = !activeSession || activeSession.teacherUid === user?.uid;
+  const shownPanel = openPanel ?? lastPanel;
+  useEffect(() => { if (openPanel) setLastPanel(openPanel); }, [openPanel]);
+  useEffect(() => {
+    if (!openPanel) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpenPanel(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openPanel]);
+  useEffect(() => {
+    const id = openClassActivity?.id ?? null;
+    if (prevOpenActivityRef.current && !id && classActivities.some(activity => activity.id === prevOpenActivityRef.current)) playSound("notify");
+    prevOpenActivityRef.current = id;
+  }, [openClassActivity?.id]);
   const activityFormDisabled = Boolean(mockStudentCount) || !user || !activeSession || activeSession.status !== "active" || !ownsActiveSession || Boolean(openClassActivity) || creatingActivity;
   const signIn = async () => {
     setAuthError("");
@@ -1133,88 +1134,135 @@ export default function App() {
         </div>
       </section>
 
-      {showClassActivities && <section ref={classActivityPanelRef} id="class-activity-inbox" className="panel class-activity-panel" aria-labelledby="class-activity-heading">
-        <div className="class-activity-header">
-          <div><h2 id="class-activity-heading"><Activity size={18} />Quick responses</h2><p>Ask a question or run a class poll. Responses stay grouped by prompt.</p></div>
-          <span className="class-activity-roster"><Users size={14} />{students.length} students</span>
-        </div>
-        {openClassActivity && <div className="class-activity-wait" role="status"><Clock3 size={17} /><span><strong>Response window open</strong><small>Wait for this prompt to close before starting another · {openActivitySeconds}s remaining</small></span><span className="activity-time-badge">{openActivitySeconds}s</span></div>}
-        <div className="class-activity-launch">
-          <div className="activity-mode-field">
-            <span className="activity-field-label">Response format</span>
-            <div className="activity-mode-switch" role="group" aria-label="Response format">
-              <button type="button" className="btn btn-ghost" aria-pressed={activityResponseType === "short-answer"} onClick={() => { setActivityResponseType("short-answer"); setActivityCorrectAnswer(""); }} disabled={activityFormDisabled}>Short answer</button>
-              <button type="button" className="btn btn-ghost" aria-pressed={activityResponseType === "multiple-choice"} onClick={() => { setActivityResponseType("multiple-choice"); setActivityCorrectAnswer(""); }} disabled={activityFormDisabled}>Multiple choice</button>
-            </div>
+      <aside id="tool-drawer" className={`tool-drawer${openPanel ? " open" : ""}`} aria-label="Class tools" inert={!openPanel}>
+        <div className="tool-drawer-bar">
+          <div className="tool-tabs" role="tablist" aria-label="Class tools">
+            <button type="button" role="tab" aria-selected={shownPanel === "questions"} onClick={() => setOpenPanel("questions")}><MessagesSquare size={15} />Ask the class{classActivities.length > 0 && <span>{classActivities.length}</span>}</button>
+            <button type="button" role="tab" aria-selected={shownPanel === "away"} onClick={() => setOpenPanel("away")}><Bell size={15} />Away notices{hasAwayNoticeActivity && <span>{activeAfkRequests.length + awayStudents.length}</span>}</button>
           </div>
-          <label className="activity-prompt-field">Question or prompt
-            <input value={activityQuestion} onChange={event => setActivityQuestion(event.target.value)} maxLength={240} placeholder="e.g. Which example best shows encapsulation?" disabled={activityFormDisabled} />
-          </label>
-          {activityResponseType === "short-answer" ? <label>Correct answer <span className="activity-optional">Optional</span>
-            <input value={activityCorrectAnswer} onChange={event => setActivityCorrectAnswer(event.target.value)} maxLength={120} placeholder="Leave blank to collect open answers" disabled={activityFormDisabled} />
-          </label> : <div className="activity-choice-builder">
-            <span className="activity-field-label">Answer choices <small>2–6 choices</small></span>
-            <div className="activity-choice-fields">{activityOptions.map((option, index) => <label className="activity-choice-field" key={index}><span>{String.fromCharCode(65 + index)}</span><input value={option} onChange={event => setActivityOptions(current => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} maxLength={120} aria-label={`Choice ${index + 1}`} placeholder={`Choice ${index + 1}`} disabled={activityFormDisabled} />{activityOptions.length > 2 && <button type="button" className="btn btn-ghost btn-icon activity-remove-choice" aria-label={`Remove choice ${index + 1}`} onClick={() => { setActivityOptions(current => current.filter((_, itemIndex) => itemIndex !== index)); if (normalizeActivityAnswer(activityCorrectAnswer) === normalizeActivityAnswer(option)) setActivityCorrectAnswer(""); }} disabled={activityFormDisabled}><X size={14} /></button>}</label>)}</div>
-            {activityOptions.length < 6 && <button type="button" className="btn btn-ghost btn-sm activity-add-choice" onClick={() => setActivityOptions(current => [...current, ""])} disabled={activityFormDisabled}>+ Add choice</button>}
-            <label className="activity-correct-field">Correct choice <span className="activity-optional">Optional · leave blank for a poll</span>
-              <select value={activityCorrectAnswer} onChange={event => setActivityCorrectAnswer(event.target.value)} disabled={activityFormDisabled}><option value="">No correct answer</option>{activityOptions.map((option, index) => option.trim() && <option key={index} value={option.trim()}>{String.fromCharCode(65 + index)} · {option.trim()}</option>)}</select>
-            </label>
-          </div>}
-          <label className="activity-duration-field">Response time
-            <select value={activityDurationSeconds} onChange={event => setActivityDurationSeconds(Number(event.target.value))} disabled={activityFormDisabled}>
-              <option value={30}>30 seconds</option><option value={60}>1 minute</option><option value={120}>2 minutes</option><option value={300}>5 minutes</option>
-            </select>
-          </label>
-          <button type="button" className="btn btn-primary class-activity-start" onClick={() => void startClassActivity()} disabled={activityFormDisabled}>
-            {creatingActivity ? "Starting…" : openClassActivity ? "Wait for responses" : "Start response round"}
-          </button>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label="Close panel" onClick={() => setOpenPanel(null)}><X /></button>
         </div>
-        {(activityError || activityResponseError) && <p className="class-activity-error" role="alert">{activityError || activityResponseError}</p>}
-        <div className="class-activity-results-heading"><div><h3>Question results</h3><p>Each round keeps its own response list.</p></div><div className="class-activity-filters" role="group" aria-label="Filter response rounds">
-          <button type="button" aria-pressed={activityResultFilter === "all"} onClick={() => setActivityResultFilter("all")}>All <span>{classActivities.length}</span></button>
-          <button type="button" aria-pressed={activityResultFilter === "open"} onClick={() => setActivityResultFilter("open")}>Open <span>{activityOpenCount}</span></button>
-          <button type="button" aria-pressed={activityResultFilter === "closed"} onClick={() => setActivityResultFilter("closed")}>Closed <span>{activityClosedCount}</span></button>
-        </div></div>
-        {visibleClassActivities.length ? visibleClassActivities.map(activity => {
-          const responses = activityResponses[activity.id] ?? [];
-          const responseByUid = new Map(responses.map(response => [response.uid, response]));
-          const studentByUid = new Map((activity.targetStudents ?? []).map(student => [student.uid, student] as const));
-          const targetUids = activity.targetUids ?? [];
-          const missingCount = targetUids.filter(uid => !responseByUid.has(uid)).length;
-          const expectedAnswer = activity.correctAnswer?.trim() || (!activity.question ? activity.word?.trim() || "" : "");
-          const hasAnswerKey = Boolean(expectedAnswer);
-          const correctCount = hasAnswerKey ? targetUids.filter(uid => { const answer = responseByUid.get(uid)?.answer; return Boolean(answer) && normalizeActivityAnswer(answer!) === normalizeActivityAnswer(expectedAnswer); }).length : 0;
-          const incorrectCount = hasAnswerKey ? Math.max(0, targetUids.length - missingCount - correctCount) : 0;
-          const remainingSeconds = Math.max(0, Math.ceil((activity.expiresAtMs - now) / 1000));
-          const isOpen = activity.status === "active" && remainingSeconds > 0;
-          const question = activity.question || activity.word || "Class question";
-          const responseType = activity.responseType || "short-answer";
-          return <article className={`class-activity-result${isOpen ? " is-live" : ""}`} key={activity.id}>
-            <div className="class-activity-result-heading"><div><span className="activity-type-label">{responseType === "multiple-choice" ? "Class poll" : hasAnswerKey ? "Quick check" : "Open question"}</span><strong>{question}</strong><span>{targetUids.length} students · {isOpen ? `${remainingSeconds}s remaining` : "Response window closed"}</span></div><span className="class-activity-total">{responses.length}/{targetUids.length} responded</span></div>
-            <div className="class-activity-progress" aria-hidden="true"><span style={{ width: `${targetUids.length ? Math.min(100, responses.length / targetUids.length * 100) : 0}%` }} /></div>
-            <div className="class-activity-counts">{hasAnswerKey ? <><span className="answer-correct"><Check size={14} />{correctCount} correct</span><span className="answer-incorrect"><X size={14} />{incorrectCount} incorrect</span></> : <span className="answer-submitted"><Check size={14} />{responses.length} answered</span>}<span className="answer-missing"><Clock3 size={14} />{missingCount} no response</span></div>
-            <ul className="class-activity-responses">{targetUids.map(uid => {
-              const response = responseByUid.get(uid);
-              const student = studentByUid.get(uid);
-              const correct = response && hasAnswerKey && normalizeActivityAnswer(response.answer) === normalizeActivityAnswer(expectedAnswer);
-              const status = !response ? "missing" : !hasAnswerKey ? "answered" : correct ? "correct" : "incorrect";
-              return <li className={`class-activity-response ${status}`} key={uid}>
-                <span><strong>{response?.name || student?.name || response?.email || student?.email || uid}</strong><small>{response?.email || student?.email || uid}</small></span>
-                <span className="activity-response-answer">{response ? response.answer : "No response"}</span>
-                <span className="activity-response-status">{status === "correct" ? "Correct" : status === "incorrect" ? "Incorrect" : status === "answered" ? "Submitted" : "No response"}</span>
-              </li>;
-            })}</ul>
-          </article>;
-        }) : <div className="class-activity-empty"><Activity size={19} /><p>{classActivities.length ? "No response rounds in this filter." : "No questions yet. Start a round and student responses will appear here."}</p></div>}
-      </section>}
+        <div className="tool-drawer-body" key={shownPanel}>
+          {shownPanel === "questions" ? <section id="ask-the-class" className="ask-panel" aria-label="Ask the class">
+            <p className="ask-intro">Post a question or poll to everyone in the room. Answers are grouped by question, and nothing here interrupts you while students reply.</p>
+            {openClassActivity ? <div className="ask-wait" role="status" aria-live="polite">
+              <span className="ask-wait-ring" style={{ "--p": Math.max(0, Math.min(1, (openClassActivity.expiresAtMs - now) / (openClassActivity.durationSeconds * 1000))) } as CSSProperties}><b>{openActivitySeconds}</b><small>sec</small></span>
+              <span className="ask-wait-copy"><strong>Students are answering</strong><small>The next question unlocks when this timer ends, so everyone gets a full turn.</small></span>
+            </div> : <fieldset className="ask-composer" disabled={activityFormDisabled}>
+              <legend className="sr-only">New question</legend>
+              <div className="ask-types" role="group" aria-label="Answer format" style={{ "--tabs": 2, "--i": activityResponseType === "short-answer" ? 0 : 1 } as CSSProperties}>
+                <span className="ask-types-indicator" aria-hidden="true" />
+                <button type="button" aria-pressed={activityResponseType === "short-answer"} onClick={() => { setActivityResponseType("short-answer"); setActivityCorrectAnswer(""); }}>Type an answer</button>
+                <button type="button" aria-pressed={activityResponseType === "multiple-choice"} onClick={() => { setActivityResponseType("multiple-choice"); setActivityCorrectAnswer(""); }}>Pick a choice</button>
+              </div>
+              <label className="ask-field">Question
+                <textarea rows={2} value={activityQuestion} onChange={event => setActivityQuestion(event.target.value)} maxLength={240} placeholder="e.g. Which example best shows encapsulation?" />
+              </label>
+              {activityResponseType === "short-answer" ? <label className="ask-field">Answer key <small>Optional. Leave empty to collect open answers.</small>
+                <input value={activityCorrectAnswer} onChange={event => setActivityCorrectAnswer(event.target.value)} maxLength={120} placeholder="The answer that counts as correct" />
+              </label> : <div className="ask-field">
+                <span>Choices <small>2 to 6</small></span>
+                <div className="ask-choices">{activityOptions.map((option, index) => <label className="ask-choice" key={index}><i>{String.fromCharCode(65 + index)}</i><input value={option} onChange={event => setActivityOptions(current => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} maxLength={120} aria-label={`Choice ${index + 1}`} placeholder={`Choice ${index + 1}`} />{activityOptions.length > 2 && <button type="button" className="btn btn-ghost btn-icon" aria-label={`Remove choice ${index + 1}`} onClick={() => { setActivityOptions(current => current.filter((_, itemIndex) => itemIndex !== index)); if (normalizeActivityAnswer(activityCorrectAnswer) === normalizeActivityAnswer(option)) setActivityCorrectAnswer(""); }}><X size={14} /></button>}</label>)}</div>
+                {activityOptions.length < 6 && <button type="button" className="btn btn-ghost btn-sm ask-add" onClick={() => setActivityOptions(current => [...current, ""])}>+ Add choice</button>}
+                <label className="ask-field">Correct choice <small>Leave on "No correct answer" to run a poll.</small>
+                  <select value={activityCorrectAnswer} onChange={event => setActivityCorrectAnswer(event.target.value)}><option value="">No correct answer (poll)</option>{activityOptions.map((option, index) => option.trim() && <option key={index} value={option.trim()}>{String.fromCharCode(65 + index)} · {option.trim()}</option>)}</select>
+                </label>
+              </div>}
+              <div className="ask-send">
+                <label className="ask-field">Time to answer
+                  <select value={activityDurationSeconds} onChange={event => setActivityDurationSeconds(Number(event.target.value))}>
+                    <option value={30}>30 seconds</option><option value={60}>1 minute</option><option value={120}>2 minutes</option><option value={300}>5 minutes</option>
+                  </select>
+                </label>
+                <button type="button" className="btn btn-primary" onClick={() => void startClassActivity()}>{creatingActivity ? "Posting…" : "Post to class"}</button>
+              </div>
+            </fieldset>}
+            {(activityError || activityResponseError) && <p className="ask-error" role="alert">{activityError || activityResponseError}</p>}
+            <div className="ask-rounds-head"><h3>Questions<span>{classActivities.length}</span></h3><div className="ask-filter" role="group" aria-label="Filter questions">
+              <button type="button" aria-pressed={activityResultFilter === "all"} onClick={() => setActivityResultFilter("all")}>All</button>
+              <button type="button" aria-pressed={activityResultFilter === "live"} onClick={() => setActivityResultFilter("live")}>Live now<span>{activityOpenCount}</span></button>
+              <button type="button" aria-pressed={activityResultFilter === "ended"} onClick={() => setActivityResultFilter("ended")}>Finished<span>{activityClosedCount}</span></button>
+            </div></div>
+            {visibleClassActivities.length ? <div className="ask-rounds">{visibleClassActivities.map((activity, roundIndex) => {
+              const responses = activityResponses[activity.id] ?? [];
+              const responseByUid = new Map(responses.map(response => [response.uid, response]));
+              const studentByUid = new Map((activity.targetStudents ?? []).map(student => [student.uid, student] as const));
+              const targetUids = activity.targetUids ?? [];
+              const expectedAnswer = activity.correctAnswer?.trim() || (!activity.question ? activity.word?.trim() || "" : "");
+              const hasAnswerKey = Boolean(expectedAnswer);
+              const corrections = hasAnswerKey && !hideCorrections[activity.id];
+              const remainingSeconds = Math.max(0, Math.ceil((activity.expiresAtMs - now) / 1000));
+              const isOpen = activity.status === "active" && remainingSeconds > 0;
+              const expanded = expandedRounds[activity.id] ?? (isOpen || roundIndex === 0);
+              const question = activity.question || activity.word || "Class question";
+              const isChoice = (activity.responseType || "short-answer") === "multiple-choice";
+              const kindLabel = isChoice ? (hasAnswerKey ? "Multiple choice" : "Poll") : hasAnswerKey ? "Short answer" : "Open question";
+              const rows = targetUids.map(uid => {
+                const response = responseByUid.get(uid);
+                const isCorrect = Boolean(response) && hasAnswerKey && normalizeActivityAnswer(response!.answer) === normalizeActivityAnswer(expectedAnswer);
+                const state = !response ? "none" : !corrections ? "answered" : isCorrect ? "correct" : "incorrect";
+                return { uid, response, student: studentByUid.get(uid), state };
+              });
+              const count = (state: string) => rows.filter(row => row.state === state).length;
+              const answeredCount = rows.length - count("none");
+              const filter = roundFilters[activity.id] ?? "all";
+              const shown = rows.filter(row => filter === "all" || (filter === "none" ? row.state === "none" : filter === row.state));
+              const tally = isChoice ? (activity.options ?? []).map((option, index) => ({ option, index, votes: responses.filter(response => normalizeActivityAnswer(response.answer) === normalizeActivityAnswer(option)).length })) : [];
+              const chips: Array<["all" | "correct" | "incorrect" | "none", string, number]> = corrections
+                ? [["all", "Everyone", rows.length], ["correct", "Correct", count("correct")], ["incorrect", "Incorrect", count("incorrect")], ["none", "No answer", count("none")]]
+                : [["all", "Everyone", rows.length], ["none", "No answer", count("none")]];
+              return <article className={`ask-round${isOpen ? " is-live" : ""}${expanded ? " expanded" : ""}`} key={activity.id}>
+                <button type="button" className="ask-round-head" aria-expanded={expanded} onClick={() => setExpandedRounds(current => ({ ...current, [activity.id]: !expanded }))}>
+                  <span className="ask-round-top"><span className="ask-kind">{kindLabel}</span><span className={`ask-status ${isOpen ? "live" : "done"}`}>{isOpen ? `Taking answers · ${remainingSeconds}s` : "Finished"}</span></span>
+                  <strong>{question}</strong>
+                  <span className="ask-round-sub"><span>{answeredCount} of {targetUids.length} answered</span>{corrections && <span className="ask-round-score"><Check size={12} />{count("correct")} correct</span>}</span>
+                  <span className="ask-bar" aria-hidden="true"><i style={{ width: `${targetUids.length ? answeredCount / targetUids.length * 100 : 0}%` }} /></span>
+                  <ChevronDown className="ask-chevron" size={16} aria-hidden="true" />
+                </button>
+                <div className="ask-round-body"><div className="ask-round-inner">
+                  {isChoice && <ul className="ask-tally" aria-label="Votes per choice">{tally.map(item => <li key={item.index} className={corrections && normalizeActivityAnswer(item.option) === normalizeActivityAnswer(expectedAnswer) ? "is-key" : ""}><span className="ask-tally-label"><i>{String.fromCharCode(65 + item.index)}</i>{item.option}{corrections && normalizeActivityAnswer(item.option) === normalizeActivityAnswer(expectedAnswer) && <Check size={13} aria-label="Correct choice" />}</span><span className="ask-tally-track"><b style={{ width: `${answeredCount ? item.votes / answeredCount * 100 : 0}%` }} /></span><span className="ask-tally-n">{item.votes}</span></li>)}</ul>}
+                  <div className="ask-tools">
+                    <div className="ask-chips" role="group" aria-label="Filter answers">{chips.map(([value, label, n]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setRoundFilters(current => ({ ...current, [activity.id]: value }))}>{label}<span>{n}</span></button>)}</div>
+                    {hasAnswerKey && <button type="button" className="btn btn-ghost switch-control ask-switch" aria-pressed={corrections} onClick={() => { setHideCorrections(current => ({ ...current, [activity.id]: corrections })); setRoundFilters(current => ({ ...current, [activity.id]: "all" })); }}><span className="switch-track"><span className="switch-thumb" /></span>Show corrections</button>}
+                  </div>
+                  <ul className="ask-answers">{shown.length ? shown.map(row => <li className={`ask-answer ${row.state}`} key={row.uid}>
+                    <span className="ask-who"><strong>{row.response?.name || row.student?.name || row.response?.email || row.student?.email || row.uid}</strong><small>{row.response?.email || row.student?.email || row.uid}</small></span>
+                    <span className="ask-said">{row.response ? row.response.answer : isOpen ? "Waiting…" : "No answer"}</span>
+                    <span className="ask-state">{row.state === "correct" ? <><Check size={12} />Correct</> : row.state === "incorrect" ? <><X size={12} />Incorrect</> : row.state === "answered" ? "Answered" : isOpen ? "Pending" : "No answer"}</span>
+                  </li>) : <li className="ask-none">No students in this view.</li>}</ul>
+                </div></div>
+              </article>;
+            })}</div> : <div className="ask-empty"><MessagesSquare size={20} /><p>{classActivities.length ? "No questions in this view." : "No questions yet. Post one above and the answers will be grouped here."}</p></div>}
+          </section> : activeSession ? (<section id="student-away-notices" className="afk-inbox" aria-labelledby="afk-inbox-title" aria-live="polite">
+          <div className="afk-inbox-heading"><div><h3 id="afk-inbox-title">Student away notices</h3><p>{pendingAfkCount ? `${pendingAfkCount} need acknowledgment` : acknowledgedAfkRequests.length ? `${acknowledgedAfkRequests.length} acknowledged · waiting for students to return` : awayStudents.length ? `${awayStudents.length} students currently marked away` : "Students have checked back in"}</p></div><span className="afk-inbox-count">{activeAfkRequests.length + awayStudents.length}</span></div>
+          {hasAwayNoticeActivity ? <><div className="afk-notice-tabs" role="group" aria-label="Filter away notices by status" style={{ "--tabs": 4, "--i": ["away", "pending", "acknowledged", "returned"].indexOf(activeAfkNoticeTab) } as CSSProperties}>
+            <span className="afk-tab-indicator" aria-hidden="true" />
+            <button type="button" className="btn btn-ghost" aria-pressed={activeAfkNoticeTab === "away"} disabled={!awayStudents.length} onClick={() => setAfkNoticeTab("away")}>Currently away <span>{awayStudents.length}</span></button>
+            <button type="button" className="btn btn-ghost" aria-pressed={activeAfkNoticeTab === "pending"} disabled={!pendingAfkRequests.length} onClick={() => setAfkNoticeTab("pending")}>Needs acknowledgment <span>{pendingAfkRequests.length}</span></button>
+            <button type="button" className="btn btn-ghost" aria-pressed={activeAfkNoticeTab === "acknowledged"} disabled={!acknowledgedAfkRequests.length} onClick={() => setAfkNoticeTab("acknowledged")}>Acknowledged · still away <span>{acknowledgedAfkRequests.length}</span></button>
+            <button type="button" className="btn btn-ghost" aria-pressed={activeAfkNoticeTab === "returned"} disabled={!returnedAfkRequests.length} onClick={() => setAfkNoticeTab("returned")}>Recently returned <span>{returnedAfkRequests.length}</span></button>
+          </div>
+          {activeAfkNoticeTab === "away" ? <ul className="afk-notice-list">{awayStudents.map(student => <li className="afk-notice-row" key={student.email}>
+            <div className="afk-student-avatar" aria-hidden="true">{initials(student.name || student.email)}</div>
+            <div className="afk-notice-student"><strong>{student.name}</strong><span>{student.email} · {student.lastTime}</span></div>
+            <span className="afk-state pending">Meet tab hidden</span>
+          </li>)}</ul> : <ul className="afk-notice-list">{visibleAfkRequests.map(notice => <li className="afk-notice-row" key={notice.id}>
+            <div className="afk-student-avatar" aria-hidden="true">{initials(notice.studentName || notice.studentEmail)}</div>
+            <div className="afk-notice-student"><strong>{notice.studentName || notice.studentEmail}</strong><span>{notice.reason} · {notice.createdAt ? formatEventTime(timestampMillis(notice.createdAt)) : "Just now"}</span>{notice.status !== "returned" && <span className="afk-duration">Away for {formatDuration(Math.max(0, now - timestampMillis(notice.createdAt)))}</span>}</div>
+            {notice.status === "pending" ? <><span className="afk-state pending">Needs acknowledgment</span><button type="button" className="btn btn-outline afk-acknowledge" onClick={() => void acknowledgeAfkRequest(notice)} disabled={acknowledgingRequestId === notice.id}>{acknowledgingRequestId === notice.id ? "Saving…" : "Acknowledge"}</button></> : <span className={`afk-state ${notice.status === "returned" ? "returned" : "acknowledged"}`}>{notice.status === "returned" ? <><Check />Student is back</> : <><Check />Acknowledged</>}</span>}
+          </li>)}</ul>}</> : <div className="afk-notice-empty"><Users size={18} /><p>No students are away and no AFK notices have been sent.</p></div>}
+        </section>) : <div className="ask-empty"><Bell size={20} /><p>Away notices appear while a class session is running.</p></div>}
+        </div>
+      </aside>
 
       <section id="activity" className="panel roster-panel" aria-label="Student activity">
         <div className="roster-header">
           <div><h2>Student activity</h2><p>{activeSession ? "Live focus signals for this class session" : "Start the class session to begin tracking Meet focus."}</p>{mockStudentCount > 0 && <span className="mock-preview-badge">40 synthetic students · local preview only</span>}</div>
           <div className="roster-tools">
             {!mockStudentCount && <button type="button" className="btn btn-outline notify-away-button" onClick={() => void notifyAwayStudents()} disabled={!user || !activeSession || activeSession.status !== "active" || awayStudents.length === 0 || sendingProfessorAlert} title={awayStudents.length ? `Send a reminder to ${awayStudents.length} students marked Away` : "No students are currently marked Away"}>{sendingProfessorAlert ? <><span className="loading-dot" aria-hidden="true" />Sending</> : <><Bell />Notify away <span className="notify-count">{awayStudents.length}</span></>}</button>}
-            {(activeSession || sessionRecap) && <button type="button" className="btn btn-outline class-activity-toggle" aria-expanded={showClassActivities} aria-controls="class-activity-inbox" onClick={toggleClassActivities}><Activity size={15} />{showClassActivities ? "Hide quick responses" : "Quick responses"}{activityUnreadCount > 0 && <span className="notify-count" aria-label={`${activityUnreadCount} new responses`}>{activityUnreadCount}</span>}</button>}
-            {activeSession && <button type="button" className="btn btn-outline away-notices-toggle" aria-expanded={showAfkNotices} aria-controls="student-away-notices" onClick={() => setShowAfkNotices(value => !value)}><Bell size={15} />{showAfkNotices ? "Hide away notices" : "Show away notices"}{hasAwayNoticeActivity && <span className="notify-count">{activeAfkRequests.length + awayStudents.length}</span>}</button>}
+            {(activeSession || sessionRecap) && <button type="button" className={`btn btn-outline tool-toggle${openClassActivity ? " live" : ""}`} aria-expanded={showClassActivities} aria-controls="tool-drawer" onClick={() => togglePanel("questions")}><MessagesSquare size={15} />Ask the class{openClassActivity && <span className="tool-live" aria-label="A question is live" />}{classActivities.length > 0 && <span className="tool-count">{classActivities.length}</span>}</button>}
+            {activeSession && <button type="button" className="btn btn-outline away-notices-toggle" aria-expanded={showAfkNotices} aria-controls="tool-drawer" onClick={() => setShowAfkNotices(value => !value)}><Bell size={15} />Away notices{hasAwayNoticeActivity && <span className="notify-count">{activeAfkRequests.length + awayStudents.length}</span>}</button>}
+            <button type="button" className="btn btn-ghost btn-icon sound-toggle" aria-pressed={soundsOn} aria-label={soundsOn ? "Turn alert sounds off" : "Turn alert sounds on"} title={soundsOn ? "Alert sounds on" : "Alert sounds off"} onClick={() => { const next = !soundsOn; setSoundsOn(next); setSoundsEnabled(next); if (next) playSound("notify"); }}>{soundsOn ? <Volume2 size={16} /> : <VolumeX size={16} />}<span className="sound-label">{soundsOn ? "Sounds on" : "Sounds off"}</span></button>
             {!mockStudentCount && <button type="button" className="btn btn-outline activity-refresh-button" onClick={() => void refreshStudentActivity()} disabled={!user || !meetingCode || refreshingActivity} title="Refresh student activity and reconnect to the active session">{refreshingActivity ? <><span className="loading-dot" aria-hidden="true" />Refreshing</> : <><RefreshCw />Refresh</>}</button>}
             <label className="search-box"><Search size={16} /><input aria-label="Search students" placeholder="Search students" value={search} onChange={e => { setSearch(e.target.value); setStudentPage(0); }} />{search && <button type="button" className="btn btn-ghost btn-icon" aria-label="Clear search" onClick={() => { setSearch(""); setStudentPage(0); }}><X /></button>}</label>
             <button type="button" className="btn btn-ghost switch-control" aria-pressed={awayOnly} onClick={() => { setAwayOnly(v => !v); setStudentPage(0); }} title="Show only students whose Meet tab is hidden or in another tab"><span className="switch-track"><span className="switch-thumb" /></span>Show switchers</button>
@@ -1236,25 +1284,6 @@ export default function App() {
         {authError && <div className="inline-notice error" role="alert"><Info size={15} /><span>{authError}</span></div>}
         {loadError && <div className="inline-notice error" role="alert"><WifiOff size={15} /><span>{loadError}</span></div>}
         {activeSession && !ownsActiveSession && <div className="inline-notice" role="status"><Info size={15} /><span>This session is controlled by a different professor.</span></div>}
-        {showAfkNotices && activeSession && <section id="student-away-notices" className="afk-inbox" aria-labelledby="afk-inbox-title" aria-live="polite">
-          <div className="afk-inbox-heading"><div><h3 id="afk-inbox-title">Student away notices</h3><p>{pendingAfkCount ? `${pendingAfkCount} need acknowledgment` : acknowledgedAfkRequests.length ? `${acknowledgedAfkRequests.length} acknowledged · waiting for students to return` : awayStudents.length ? `${awayStudents.length} students currently marked away` : "Students have checked back in"}</p></div><span className="afk-inbox-count">{activeAfkRequests.length + awayStudents.length}</span></div>
-          {hasAwayNoticeActivity ? <><div className="afk-notice-tabs" role="group" aria-label="Filter away notices by status" style={{ "--tabs": 4, "--i": ["away", "pending", "acknowledged", "returned"].indexOf(activeAfkNoticeTab) } as CSSProperties}>
-            <span className="afk-tab-indicator" aria-hidden="true" />
-            <button type="button" className="btn btn-ghost" aria-pressed={activeAfkNoticeTab === "away"} disabled={!awayStudents.length} onClick={() => setAfkNoticeTab("away")}>Currently away <span>{awayStudents.length}</span></button>
-            <button type="button" className="btn btn-ghost" aria-pressed={activeAfkNoticeTab === "pending"} disabled={!pendingAfkRequests.length} onClick={() => setAfkNoticeTab("pending")}>Needs acknowledgment <span>{pendingAfkRequests.length}</span></button>
-            <button type="button" className="btn btn-ghost" aria-pressed={activeAfkNoticeTab === "acknowledged"} disabled={!acknowledgedAfkRequests.length} onClick={() => setAfkNoticeTab("acknowledged")}>Acknowledged · still away <span>{acknowledgedAfkRequests.length}</span></button>
-            <button type="button" className="btn btn-ghost" aria-pressed={activeAfkNoticeTab === "returned"} disabled={!returnedAfkRequests.length} onClick={() => setAfkNoticeTab("returned")}>Recently returned <span>{returnedAfkRequests.length}</span></button>
-          </div>
-          {activeAfkNoticeTab === "away" ? <ul className="afk-notice-list">{awayStudents.map(student => <li className="afk-notice-row" key={student.email}>
-            <div className="afk-student-avatar" aria-hidden="true">{initials(student.name || student.email)}</div>
-            <div className="afk-notice-student"><strong>{student.name}</strong><span>{student.email} · {student.lastTime}</span></div>
-            <span className="afk-state pending">Meet tab hidden</span>
-          </li>)}</ul> : <ul className="afk-notice-list">{visibleAfkRequests.map(notice => <li className="afk-notice-row" key={notice.id}>
-            <div className="afk-student-avatar" aria-hidden="true">{initials(notice.studentName || notice.studentEmail)}</div>
-            <div className="afk-notice-student"><strong>{notice.studentName || notice.studentEmail}</strong><span>{notice.reason} · {notice.createdAt ? formatEventTime(timestampMillis(notice.createdAt)) : "Just now"}</span>{notice.status !== "returned" && <span className="afk-duration">Away for {formatDuration(Math.max(0, now - timestampMillis(notice.createdAt)))}</span>}</div>
-            {notice.status === "pending" ? <><span className="afk-state pending">Needs acknowledgment</span><button type="button" className="btn btn-outline afk-acknowledge" onClick={() => void acknowledgeAfkRequest(notice)} disabled={acknowledgingRequestId === notice.id}>{acknowledgingRequestId === notice.id ? "Saving…" : "Acknowledge"}</button></> : <span className={`afk-state ${notice.status === "returned" ? "returned" : "acknowledged"}`}>{notice.status === "returned" ? <><Check />Student is back</> : <><Check />Acknowledged</>}</span>}
-          </li>)}</ul>}</> : <div className="afk-notice-empty"><Users size={18} /><p>No students are away and no AFK notices have been sent.</p></div>}
-        </section>}
         <table className="roster-table"><caption className="sr-only">Student activity signals for INTE 301, BSIT 3-5.</caption><thead><tr><th scope="col">Student</th><th scope="col">Status</th><th scope="col">Focus time</th><th scope="col">Last event</th></tr></thead><tbody>{user && visiblePage.map((student, index) => <tr key={student.email} style={{ "--i": Math.min(index, 14) } as CSSProperties} className={`signal-${statusClass[student.status]} ${attentionStatuses.has(student.status) ? "attention" : ""}`}>
           <td><div className="student-cell"><div className="avatar" aria-hidden="true">{initials(student.name)}</div><div className="student-info"><button type="button" className="btn btn-link student-name" onClick={() => setSelectedStudentEmail(student.email)} aria-label={`View activity details for ${student.name}`}>{student.name}</button><div className="student-email">{student.email}</div></div></div></td>
           <td><span className={`pill status-pill signal-${statusClass[student.status]}`}><span className="dot" />{student.status}</span></td>
